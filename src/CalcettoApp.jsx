@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from "react";
+import { supabase } from "./supabaseClient";
 
 /* ---------------------------------------------------------
    TOKEN SYSTEM
@@ -1294,12 +1295,16 @@ function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione }) {
 /* ---------------------------------------------------------
    ONBOARDING — scelta login + consenso privacy/foto
 --------------------------------------------------------- */
-function Onboarding({ onComplete }) {
+function Onboarding({ onRegistrationSent }) {
+  const [mode, setMode] = useState("register"); // register | login
   const [step, setStep] = useState("welcome"); // welcome -> form -> consenso -> inviata
   const [metodo, setMetodo] = useState(null); // "google" | "email"
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
 
   const [consensoDati, setConsensoDati] = useState(false);
   const [consensoFoto, setConsensoFoto] = useState(false);
@@ -1307,12 +1312,64 @@ function Onboarding({ onComplete }) {
   const [importaFotoGoogle, setImportaFotoGoogle] = useState(false);
   const [infoAperta, setInfoAperta] = useState(false);
 
+  const [caricamento, setCaricamento] = useState(false);
+  const [errore, setErrore] = useState("");
+
   const puoConfermare = consensoDati && consensoFoto && maggiorenne;
 
   const scegliMetodo = (m) => {
+    if (m === "google") {
+      setErrore("Il login con Google non è ancora attivo per questo gruppo. Usa l'email per ora.");
+      return;
+    }
+    setErrore("");
     setMetodo(m);
-    if (m === "google") setNome("Il tuo nome Google");
-    setStep(m === "google" ? "consenso" : "form");
+    setStep("form");
+  };
+
+  const handleLogin = async () => {
+    setErrore("");
+    setCaricamento(true);
+    const { error } = await supabase.auth.signInWithPassword({ email: loginEmail, password: loginPassword });
+    setCaricamento(false);
+    if (error) setErrore(error.message === "Invalid login credentials" ? "Email o password non corrette." : error.message);
+    // se va a buon fine, il cambiamento di sessione viene gestito dal componente App
+  };
+
+  const handleRegistrati = async () => {
+    setErrore("");
+    setCaricamento(true);
+    const { data, error } = await supabase.auth.signUp({ email, password });
+    if (error) {
+      setCaricamento(false);
+      setErrore(
+        error.message.includes("already registered") || error.message.includes("User already registered")
+          ? "Questa email è già registrata. Prova ad accedere invece."
+          : error.message
+      );
+      return;
+    }
+    const userId = data.user?.id;
+    if (userId) {
+      const initials = nome.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+      const { error: profileError } = await supabase.from("profiles").insert({
+        auth_user_id: userId,
+        name: nome,
+        initials,
+        consenso_dati: consensoDati,
+        consenso_foto: consensoFoto,
+        maggiorenne,
+        consenso_timestamp: new Date().toISOString(),
+      });
+      if (profileError) {
+        setCaricamento(false);
+        setErrore("Registrazione creata ma il profilo non è stato salvato: " + profileError.message);
+        return;
+      }
+    }
+    setCaricamento(false);
+    setStep("inviata");
+    if (onRegistrationSent) onRegistrationSent();
   };
 
   const Checkbox = ({ checked, onChange, children }) => (
@@ -1326,6 +1383,13 @@ function Onboarding({ onComplete }) {
       <span>{children}</span>
     </label>
   );
+
+  const ErroreBox = () =>
+    errore ? (
+      <div style={{ background: "rgba(229,83,60,0.1)", border: `1px solid ${COLORS.red}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#ffb3a3" }}>
+        {errore}
+      </div>
+    ) : null;
 
   return (
     <div
@@ -1341,7 +1405,7 @@ function Onboarding({ onComplete }) {
     >
       <style>{FONT_IMPORT}</style>
       <div style={{ width: "100%", maxWidth: 420, background: COLORS.navy, borderRadius: 18, padding: 30, border: `1px solid rgba(255,255,255,0.08)` }}>
-        <div style={{ textAlign: "center", marginBottom: 26 }}>
+        <div style={{ textAlign: "center", marginBottom: 22 }}>
           <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 800, fontSize: 24, color: COLORS.chalk }}>
             ⚽ CALCETTO MARTEDÌ & GIOVEDÌ
           </div>
@@ -1349,7 +1413,70 @@ function Onboarding({ onComplete }) {
         </div>
 
         {step === "welcome" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 18 }}>
+            <div style={{ display: "flex", background: "rgba(0,0,0,0.25)", padding: 4, borderRadius: 10 }}>
+              {[{ id: "login", label: "Accedi" }, { id: "register", label: "Registrati" }].map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => { setMode(m.id); setErrore(""); }}
+                  style={{
+                    flex: 1, border: "none", cursor: "pointer", padding: "8px 0", borderRadius: 7,
+                    fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13,
+                    background: mode === m.id ? COLORS.floodlight : "transparent",
+                    color: mode === m.id ? COLORS.pitchDark : COLORS.chalkDim,
+                  }}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {step === "welcome" && mode === "login" && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <ErroreBox />
+            <div>
+              <div style={{ fontSize: 11.5, color: COLORS.chalkDim, marginBottom: 4 }}>Email</div>
+              <input
+                type="email" value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)}
+                style={{
+                  width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
+                  border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                }}
+              />
+            </div>
+            <div>
+              <div style={{ fontSize: 11.5, color: COLORS.chalkDim, marginBottom: 4 }}>Password</div>
+              <input
+                type="password" value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)}
+                style={{
+                  width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
+                  border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                }}
+              />
+            </div>
+            <button
+              onClick={handleLogin}
+              disabled={!loginEmail || !loginPassword || caricamento}
+              style={{
+                marginTop: 4, padding: "11px 0", borderRadius: 10, border: "none",
+                cursor: loginEmail && loginPassword && !caricamento ? "pointer" : "not-allowed",
+                background: loginEmail && loginPassword && !caricamento ? COLORS.floodlight : "rgba(255,255,255,0.1)",
+                color: loginEmail && loginPassword && !caricamento ? COLORS.pitchDark : COLORS.chalkDim,
+                fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 14,
+              }}
+            >
+              {caricamento ? "Accesso in corso…" : "Accedi"}
+            </button>
+          </div>
+        )}
+
+        {step === "welcome" && mode === "register" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <ErroreBox />
             <button
               onClick={() => scegliMetodo("google")}
               style={{
@@ -1370,9 +1497,6 @@ function Onboarding({ onComplete }) {
             >
               ✉️ Registrati con email
             </button>
-            <div style={{ fontSize: 11, color: COLORS.chalkDim, textAlign: "center", marginTop: 14, lineHeight: 1.5 }}>
-              Consigliamo Google: accesso più rapido, nessuna password da ricordare.
-            </div>
           </div>
         )}
 
@@ -1419,6 +1543,8 @@ function Onboarding({ onComplete }) {
               Prima di iniziare
             </div>
 
+            <ErroreBox />
+
             <div style={{ background: "rgba(255,200,87,0.08)", border: `1px solid rgba(255,200,87,0.3)`, borderRadius: 10, padding: 12 }}>
               <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: COLORS.chalkDim, lineHeight: 1.6 }}>
                 ℹ️ La tua registrazione dovrà essere approvata dall'organizzatore prima di poter accedere. Se eri già stato inserito come ospite, sarà l'organizzatore a collegare il tuo account al profilo esistente.
@@ -1436,14 +1562,6 @@ function Onboarding({ onComplete }) {
                 Acconsento all'utilizzo della mia foto per creare la mia figurina personale, visibile agli altri membri del gruppo.
               </Checkbox>
             </div>
-
-            {metodo === "google" && (
-              <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 12 }}>
-                <Checkbox checked={importaFotoGoogle} onChange={setImportaFotoGoogle}>
-                  Importa automaticamente la mia foto profilo Google come foto della figurina (facoltativo — puoi caricarne una diversa in seguito).
-                </Checkbox>
-              </div>
-            )}
 
             <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 12 }}>
               <Checkbox checked={maggiorenne} onChange={setMaggiorenne}>
@@ -1466,34 +1584,23 @@ function Onboarding({ onComplete }) {
             </div>
 
             <button
-              onClick={() => {
-                onComplete({
-                  nome,
-                  metodo,
-                  consensoDati,
-                  consensoFoto,
-                  maggiorenne,
-                  importaFotoGoogle,
-                  timestamp: new Date().toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" }),
-                });
-                setStep("inviata");
-              }}
-              disabled={!puoConfermare}
+              onClick={handleRegistrati}
+              disabled={!puoConfermare || caricamento}
               style={{
-                padding: "12px 0", borderRadius: 10, border: "none", cursor: puoConfermare ? "pointer" : "not-allowed",
-                background: puoConfermare ? COLORS.floodlight : "rgba(255,255,255,0.1)",
-                color: puoConfermare ? COLORS.pitchDark : COLORS.chalkDim,
+                padding: "12px 0", borderRadius: 10, border: "none", cursor: puoConfermare && !caricamento ? "pointer" : "not-allowed",
+                background: puoConfermare && !caricamento ? COLORS.floodlight : "rgba(255,255,255,0.1)",
+                color: puoConfermare && !caricamento ? COLORS.pitchDark : COLORS.chalkDim,
                 fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 14,
               }}
             >
-              Invia richiesta di registrazione
+              {caricamento ? "Invio in corso…" : "Invia richiesta di registrazione"}
             </button>
             {!puoConfermare && (
               <div style={{ fontSize: 11, color: COLORS.chalkDim, textAlign: "center", marginTop: -8 }}>
                 Servono i consensi su dati, foto ed età per continuare.
               </div>
             )}
-            <button onClick={() => setStep(metodo === "google" ? "welcome" : "form")} style={{ background: "none", border: "none", color: COLORS.chalkDim, fontSize: 12, cursor: "pointer", fontFamily: "Inter, sans-serif" }}>
+            <button onClick={() => setStep("form")} style={{ background: "none", border: "none", color: COLORS.chalkDim, fontSize: 12, cursor: "pointer", fontFamily: "Inter, sans-serif" }}>
               ← Indietro
             </button>
           </div>
@@ -1516,10 +1623,47 @@ function Onboarding({ onComplete }) {
 }
 
 /* ---------------------------------------------------------
+   SCHERMATE DI ATTESA / STATO ACCOUNT
+--------------------------------------------------------- */
+function SchermataStato({ icona, titolo, testo, onEsci }) {
+  return (
+    <div
+      style={{
+        minHeight: "100%",
+        background: `radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
+        display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px",
+        fontFamily: "Inter, sans-serif",
+      }}
+    >
+      <style>{FONT_IMPORT}</style>
+      <div style={{ width: "100%", maxWidth: 420, background: COLORS.navy, borderRadius: 18, padding: 34, border: `1px solid rgba(255,255,255,0.08)`, textAlign: "center" }}>
+        <div style={{ fontSize: 40, marginBottom: 14 }}>{icona}</div>
+        <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 19, color: COLORS.chalk, marginBottom: 8 }}>
+          {titolo}
+        </div>
+        <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, lineHeight: 1.6, marginBottom: 20 }}>
+          {testo}
+        </div>
+        <button
+          onClick={onEsci}
+          style={{
+            padding: "9px 18px", borderRadius: 9, border: `1px solid rgba(255,255,255,0.15)`, cursor: "pointer",
+            background: "transparent", color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12.5,
+          }}
+        >
+          Esci
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
    APP
 --------------------------------------------------------- */
 export default function CalcettoApp() {
-  const [loggedIn, setLoggedIn] = useState(false);
+  const [session, setSession] = useState(undefined); // undefined = ancora da controllare, null = nessuna sessione
+  const [profileStatus, setProfileStatus] = useState(null);
   const [consensi, setConsensi] = useState(null);
   const [richiesteCancellazione, setRichiesteCancellazione] = useState([]);
   const [richiesteRegistrazione, setRichiesteRegistrazione] = useState([
@@ -1532,6 +1676,35 @@ export default function CalcettoApp() {
   const [roles, setRoles] = useState({ 1: "player", 2: "player", 3: "player", 4: "player", 5: "player", 6: "organizer" });
 
   const currentPlayerId = 6;
+
+  // Ascolta lo stato di autenticazione reale (Supabase)
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  // Quando cambia la sessione, controlla se esiste un profilo e il suo stato
+  useEffect(() => {
+    let annullato = false;
+    async function caricaProfilo() {
+      if (!session) {
+        setProfileStatus(null);
+        return;
+      }
+      const { data } = await supabase
+        .from("profiles")
+        .select("stato_registrazione")
+        .eq("auth_user_id", session.user.id)
+        .maybeSingle();
+      if (annullato) return;
+      setProfileStatus(data ? data.stato_registrazione : "nessuno");
+    }
+    caricaProfilo();
+    return () => {
+      annullato = true;
+    };
+  }, [session]);
 
   const PALETTE_OSPITI = ["#2D6A4F", "#1B4332", "#16233D", "#E5533C", "#4C7A5C"];
 
@@ -1627,22 +1800,44 @@ export default function CalcettoApp() {
     setActiveTab(tabsByRole[r][0].id);
   };
 
-  if (!loggedIn) {
+  if (session === undefined) {
     return (
-      <Onboarding
-        onComplete={(c) => {
-          setConsensi(c);
-          setRichiesteRegistrazione((rs) => [
-            ...rs,
-            {
-              id: `r-${Date.now()}`,
-              nome: c.nome && c.nome !== "Il tuo nome Google" ? c.nome : "Nuovo utente Google",
-              metodo: c.metodo,
-              data: c.timestamp,
-            },
-          ]);
-          setLoggedIn(true);
-        }}
+      <div style={{ minHeight: "100%", background: COLORS.pitchDark, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>Caricamento…</div>
+      </div>
+    );
+  }
+
+  if (!session) {
+    return <Onboarding onRegistrationSent={() => {}} />;
+  }
+
+  if (profileStatus === null) {
+    return (
+      <div style={{ minHeight: "100%", background: COLORS.pitchDark, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>Caricamento…</div>
+      </div>
+    );
+  }
+
+  if (profileStatus === "in_attesa" || profileStatus === "nessuno") {
+    return (
+      <SchermataStato
+        icona="⏳"
+        titolo="In attesa di approvazione"
+        testo="La tua registrazione è stata ricevuta. L'organizzatore deve approvarla prima che tu possa accedere all'app."
+        onEsci={() => supabase.auth.signOut()}
+      />
+    );
+  }
+
+  if (profileStatus === "rifiutato") {
+    return (
+      <SchermataStato
+        icona="✕"
+        titolo="Richiesta non approvata"
+        testo="L'organizzatore non ha approvato questa registrazione. Contattalo direttamente se pensi sia un errore."
+        onEsci={() => supabase.auth.signOut()}
       />
     );
   }
@@ -1673,7 +1868,7 @@ export default function CalcettoApp() {
             <RoleSwitcher role={role} setRole={handleRoleChange} />
           </div>
           <button
-            onClick={() => setLoggedIn(false)}
+            onClick={() => supabase.auth.signOut()}
             style={{
               background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 8,
               color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 12, padding: "7px 10px", cursor: "pointer",

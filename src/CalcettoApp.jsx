@@ -206,7 +206,7 @@ function PlayerCard({ p, onClick, selected }) {
             width: 72,
             height: 72,
             borderRadius: "50%",
-            background: p.colore,
+            background: p.foto_url ? "transparent" : p.colore,
             margin: "10px auto 8px",
             display: "flex",
             alignItems: "center",
@@ -216,9 +216,14 @@ function PlayerCard({ p, onClick, selected }) {
             fontSize: 26,
             color: COLORS.chalk,
             border: `2px solid rgba(255,255,255,0.15)`,
+            overflow: "hidden",
           }}
         >
-          {p.initials}
+          {p.foto_url ? (
+            <img src={p.foto_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          ) : (
+            p.initials
+          )}
         </div>
 
         <div
@@ -228,12 +233,17 @@ function PlayerCard({ p, onClick, selected }) {
             fontSize: 16,
             color: COLORS.chalk,
             textAlign: "center",
-            marginBottom: 10,
             letterSpacing: 0.3,
           }}
         >
           {p.name}
         </div>
+        {p.soprannome && (
+          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 10.5, fontStyle: "italic", color: COLORS.floodlight, textAlign: "center", marginBottom: 4 }}>
+            "{p.soprannome}"
+          </div>
+        )}
+        <div style={{ marginBottom: p.soprannome ? 6 : 10 }} />
 
         {/* Affidabilita gauge */}
         <div style={{ marginBottom: 8 }}>
@@ -439,6 +449,7 @@ function Storico({ players, matches, rimossi = [] }) {
           const marcatori = Object.entries(m.gol || {})
             .filter(([, n]) => n > 0)
             .sort((a, b) => b[1] - a[1]);
+          const autogol = Object.entries(m.autogol || {}).filter(([, n]) => n > 0);
           return (
             <div key={m.id} style={{ background: COLORS.navy, borderRadius: 12, padding: "16px 18px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
@@ -492,6 +503,16 @@ function Storico({ players, matches, rimossi = [] }) {
                   {m.buche.map((id) => (
                     <span key={id} style={chip("rgba(229,83,60,0.15)", COLORS.red)}>
                       🚫 {nomeById(players, id, rimossi)} ha dato buca
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {autogol.length > 0 && (
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 10, marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {autogol.map(([id, n]) => (
+                    <span key={id} style={chip("rgba(229,83,60,0.12)", COLORS.red)}>
+                      🔴 Autogol {nomeById(players, id, rimossi)} × {n}
                     </span>
                   ))}
                 </div>
@@ -690,85 +711,132 @@ function Votazione({ players, matches, currentPlayerId, onVota }) {
 /* ---------------------------------------------------------
    PANNELLO ORGANIZZATORE — Risultato e gol
 --------------------------------------------------------- */
-function Risultato({ players, matches, onSalvaRisultato }) {
-  const match = matches.find((m) => m.stato === "aperta");
-  const [bianchi, setBianchi] = useState(0);
-  const [neri, setNeri] = useState(0);
+function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita }) {
+  const partiteGestibili = [...matches].sort((a, b) => new Date(b.data) - new Date(a.data));
+  const apertaId = matches.find((m) => m.stato === "aperta")?.id;
+
+  const [selezionataId, setSelezionataId] = useState(apertaId || partiteGestibili[0]?.id || null);
+  const match = partiteGestibili.find((m) => m.id === selezionataId) || null;
+
   const [gol, setGol] = useState({});
+  const [autogol, setAutogol] = useState({});
   const [mvp, setMvp] = useState(null);
   const [buche, setBuche] = useState([]);
   const [salvataggioInCorso, setSalvataggioInCorso] = useState(false);
   const [salvato, setSalvato] = useState(false);
+  const [confermaEliminazione, setConfermaEliminazione] = useState(false);
+  const [eliminazioneInCorso, setEliminazioneInCorso] = useState(false);
+
+  useEffect(() => {
+    if (!apertaId) return;
+    setSelezionataId((prev) => prev || apertaId);
+  }, [apertaId]);
+
+  useEffect(() => {
+    if (!match) return;
+    setGol(match.gol || {});
+    setAutogol(match.autogol || {});
+    setMvp(match.mvp || null);
+    setBuche(match.buche || []);
+    setSalvato(false);
+    setConfermaEliminazione(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selezionataId]);
 
   const partecipantiIds = match ? [...match.squadraBianchi, ...match.squadraNeri] : [];
   const partecipanti = players.filter((p) => partecipantiIds.includes(p.id));
 
   const setGolGiocatore = (id, n) => setGol((g) => ({ ...g, [id]: Math.max(0, n) }));
+  const setAutogolGiocatore = (id, n) => setAutogol((a) => ({ ...a, [id]: Math.max(0, n) }));
 
   const toggleBuca = (id) => {
     setBuche((b) => (b.includes(id) ? b.filter((x) => x !== id) : [...b, id]));
     setGol((g) => ({ ...g, [id]: 0 }));
+    setAutogol((a) => ({ ...a, [id]: 0 }));
     if (mvp === id) setMvp(null);
   };
 
   const totaleGolInseriti = Object.values(gol).reduce((a, b) => a + b, 0);
+  const totaleAutogolInseriti = Object.values(autogol).reduce((a, b) => a + b, 0);
+
+  // Il punteggio si calcola da solo: gol normali alla propria squadra,
+  // autogol alla squadra avversaria.
+  const bianchi = match
+    ? match.squadraBianchi.reduce((s, id) => s + (gol[id] || 0), 0) + match.squadraNeri.reduce((s, id) => s + (autogol[id] || 0), 0)
+    : 0;
+  const neri = match
+    ? match.squadraNeri.reduce((s, id) => s + (gol[id] || 0), 0) + match.squadraBianchi.reduce((s, id) => s + (autogol[id] || 0), 0)
+    : 0;
 
   const salva = async () => {
     setSalvataggioInCorso(true);
-    await onSalvaRisultato(match.id, { bianchi, neri, gol, mvp, buche });
+    await onSalvaRisultato(match.id, { bianchi, neri, gol, autogol, mvp, buche });
     setSalvataggioInCorso(false);
     setSalvato(true);
   };
 
-  if (!match) return <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>Nessuna partita aperta al momento. Crea prima una partita nella tab Formazione.</div>;
+  const elimina = async () => {
+    if (!confermaEliminazione) {
+      setConfermaEliminazione(true);
+      return;
+    }
+    setEliminazioneInCorso(true);
+    await onEliminaPartita(match.id);
+    setEliminazioneInCorso(false);
+  };
 
-  if (partecipanti.length === 0) {
-    return (
-      <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>
-        Prima componi le squadre nella tab Formazione, poi torna qui per registrare il risultato.
-      </div>
-    );
+  if (partiteGestibili.length === 0) {
+    return <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>Nessuna partita creata. Vai su "Crea Partita".</div>;
   }
 
   return (
     <div>
       <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.chalk, marginBottom: 4 }}>
-        Registra risultato · {match.giorno} {match.data}
+        Registra o modifica risultato
       </div>
-      <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 18 }}>
-        I gol assegnati si sommano automaticamente allo storico e alla figurina di ogni giocatore. Segnala chi ha dato buca: pesa sulla sua affidabilità più di una semplice assenza. Salvando, la partita passa allo storico e si apre per le votazioni.
+      <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 14 }}>
+        Scegli la partita da gestire. Salvando, i gol si aggiornano automaticamente allo storico e alle figurine.
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, marginBottom: 22 }}>
+      <select
+        value={selezionataId || ""}
+        onChange={(e) => setSelezionataId(e.target.value)}
+        style={{
+          width: "100%", maxWidth: 340, padding: "9px 12px", borderRadius: 8, marginBottom: 20,
+          border: `1px solid rgba(255,255,255,0.15)`, background: COLORS.navy,
+          color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+        }}
+      >
+        {partiteGestibili.map((m) => (
+          <option key={m.id} value={m.id} style={{ background: COLORS.navy }}>
+            {m.giorno} {m.data} · {m.stato === "aperta" ? "aperta, senza risultato" : `storico ${m.risultato ? `(${m.risultato.bianchi}-${m.risultato.neri})` : ""}`}
+          </option>
+        ))}
+      </select>
+
+      {!match ? null : partecipanti.length === 0 ? (
+        <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>
+          Questa partita non ha ancora una formazione. Vai su "Crea Partita" per comporre le squadre prima di registrare il risultato.
+        </div>
+      ) : (
+        <>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, marginBottom: 6 }}>
         <div style={{ textAlign: "center" }}>
           <SquadraBadge tipo="bianchi" />
-          <input
-            type="number" min={0} value={bianchi}
-            onChange={(e) => setBianchi(parseInt(e.target.value) || 0)}
-            style={{
-              display: "block", width: 64, marginTop: 8, textAlign: "center",
-              background: COLORS.navy, border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 8,
-              color: COLORS.chalk, fontFamily: "IBM Plex Mono, monospace", fontSize: 22, padding: "6px 0",
-            }}
-          />
+          <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 34, fontWeight: 600, color: COLORS.chalk, marginTop: 8 }}>{bianchi}</div>
         </div>
         <div style={{ color: COLORS.chalkDim, fontFamily: "IBM Plex Mono, monospace", fontSize: 20 }}>—</div>
         <div style={{ textAlign: "center" }}>
           <SquadraBadge tipo="neri" />
-          <input
-            type="number" min={0} value={neri}
-            onChange={(e) => setNeri(parseInt(e.target.value) || 0)}
-            style={{
-              display: "block", width: 64, marginTop: 8, textAlign: "center",
-              background: COLORS.navy, border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 8,
-              color: COLORS.chalk, fontFamily: "IBM Plex Mono, monospace", fontSize: 22, padding: "6px 0",
-            }}
-          />
+          <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 34, fontWeight: 600, color: COLORS.chalk, marginTop: 8 }}>{neri}</div>
         </div>
+      </div>
+      <div style={{ textAlign: "center", fontSize: 11, color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", marginBottom: 22 }}>
+        Il punteggio si calcola da solo in base a gol e autogol inseriti sotto.
       </div>
 
       <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 16, color: COLORS.chalk, marginBottom: 10 }}>
-        Presenze e gol <span style={{ color: COLORS.chalkDim, fontSize: 13, fontFamily: "Inter, sans-serif" }}>(totale gol inserito: {totaleGolInseriti})</span>
+        Presenze e gol <span style={{ color: COLORS.chalkDim, fontSize: 13, fontFamily: "Inter, sans-serif" }}>(gol: {totaleGolInseriti} · autogol: {totaleAutogolInseriti})</span>
       </div>
       <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 20 }}>
         {partecipanti.map((p) => {
@@ -823,22 +891,43 @@ function Risultato({ players, matches, onSalvaRisultato }) {
                   {haDatoBuca ? "🚫 Ha dato buca" : "Segnala buca"}
                 </button>
                 {!haDatoBuca && (
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <button
-                      onClick={() => setGolGiocatore(p.id, (gol[p.id] || 0) - 1)}
-                      style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`, background: "transparent", color: COLORS.chalk, cursor: "pointer" }}
-                    >
-                      −
-                    </button>
-                    <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 15, color: COLORS.floodlight, width: 16, textAlign: "center" }}>
-                      {gol[p.id] || 0}
-                    </span>
-                    <button
-                      onClick={() => setGolGiocatore(p.id, (gol[p.id] || 0) + 1)}
-                      style={{ width: 24, height: 24, borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`, background: "transparent", color: COLORS.chalk, cursor: "pointer" }}
-                    >
-                      +
-                    </button>
+                  <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 9.5, color: COLORS.chalkDim, fontFamily: "Inter, sans-serif" }}>⚽</span>
+                      <button
+                        onClick={() => setGolGiocatore(p.id, (gol[p.id] || 0) - 1)}
+                        style={{ width: 22, height: 22, borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`, background: "transparent", color: COLORS.chalk, cursor: "pointer", fontSize: 13 }}
+                      >
+                        −
+                      </button>
+                      <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 14, color: COLORS.floodlight, width: 14, textAlign: "center" }}>
+                        {gol[p.id] || 0}
+                      </span>
+                      <button
+                        onClick={() => setGolGiocatore(p.id, (gol[p.id] || 0) + 1)}
+                        style={{ width: 22, height: 22, borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`, background: "transparent", color: COLORS.chalk, cursor: "pointer", fontSize: 13 }}
+                      >
+                        +
+                      </button>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 9.5, color: COLORS.red, fontFamily: "Inter, sans-serif" }}>🔴 AG</span>
+                      <button
+                        onClick={() => setAutogolGiocatore(p.id, (autogol[p.id] || 0) - 1)}
+                        style={{ width: 22, height: 22, borderRadius: 6, border: `1px solid rgba(229,83,60,0.3)`, background: "transparent", color: COLORS.chalk, cursor: "pointer", fontSize: 13 }}
+                      >
+                        −
+                      </button>
+                      <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 14, color: COLORS.red, width: 14, textAlign: "center" }}>
+                        {autogol[p.id] || 0}
+                      </span>
+                      <button
+                        onClick={() => setAutogolGiocatore(p.id, (autogol[p.id] || 0) + 1)}
+                        style={{ width: 22, height: 22, borderRadius: 6, border: `1px solid rgba(229,83,60,0.3)`, background: "transparent", color: COLORS.chalk, cursor: "pointer", fontSize: 13 }}
+                      >
+                        +
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
@@ -849,15 +938,43 @@ function Risultato({ players, matches, onSalvaRisultato }) {
 
       <button
         onClick={salva}
-        disabled={salvataggioInCorso || salvato}
+        disabled={salvataggioInCorso}
         style={{
-          padding: "10px 18px", borderRadius: 9, border: "none", cursor: salvataggioInCorso || salvato ? "not-allowed" : "pointer",
+          padding: "10px 18px", borderRadius: 9, border: "none", cursor: salvataggioInCorso ? "not-allowed" : "pointer",
           fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 13,
           background: COLORS.floodlight, color: COLORS.pitchDark,
         }}
       >
-        {salvato ? "✓ Risultato salvato" : salvataggioInCorso ? "Salvataggio…" : "Salva risultato"}
+        {salvato ? "✓ Salvato — salva di nuovo per aggiornare" : salvataggioInCorso ? "Salvataggio…" : "Salva risultato"}
       </button>
+        </>
+      )}
+
+      {match && (
+        <div style={{ marginTop: 28, paddingTop: 18, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+          <button
+            onClick={elimina}
+            disabled={eliminazioneInCorso}
+            style={{
+              padding: "9px 16px", borderRadius: 8, cursor: eliminazioneInCorso ? "not-allowed" : "pointer",
+              fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12.5,
+              border: `1px solid ${COLORS.red}`,
+              background: confermaEliminazione ? COLORS.red : "transparent",
+              color: confermaEliminazione ? COLORS.chalk : COLORS.red,
+            }}
+          >
+            {eliminazioneInCorso ? "Eliminazione…" : confermaEliminazione ? "Conferma: elimina definitivamente" : "🗑️ Elimina questa partita"}
+          </button>
+          {confermaEliminazione && (
+            <div style={{ fontSize: 11.5, color: COLORS.chalkDim, marginTop: 8, fontFamily: "Inter, sans-serif" }}>
+              Cancella anche i voti collegati a questa partita. Non si può annullare.{" "}
+              <span style={{ textDecoration: "underline", cursor: "pointer" }} onClick={() => setConfermaEliminazione(false)}>
+                Annulla
+              </span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -1184,15 +1301,17 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita }) {
 /* ---------------------------------------------------------
    PANNELLO ADMIN
 --------------------------------------------------------- */
-function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiungiGiocatore, richiesteRegistrazione = [], onApprovaRegistrazione, onRifiutaRegistrazione, onPromuoviRuolo }) {
+function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiungiGiocatore, richiesteRegistrazione = [], onApprovaRegistrazione, onRifiutaRegistrazione, onPromuoviRuolo, onModificaGiocatore }) {
   const roleOptions = ["organizer", "player"];
   const roleLabel = { organizer: "Organizzatore", player: "Giocatore" };
   const roleColor = { organizer: COLORS.floodlight, player: COLORS.green };
-  const ruoliCampo = ["Portiere", "Difensore", "Centrocampo", "Attaccante"];
+  const ruoliCampo = ["Portiere", "Difensore", "Esterno Destro", "Esterno Sinistro", "Centrocampo", "Attaccante"];
 
   const [nomeNuovo, setNomeNuovo] = useState("");
   const [ruoloNuovo, setRuoloNuovo] = useState("Centrocampo");
   const [collegamentoScelto, setCollegamentoScelto] = useState({});
+  const [modificaAttiva, setModificaAttiva] = useState(null);
+  const [bozzeModifica, setBozzeModifica] = useState({});
 
   const ospitiDisponibili = players.filter((p) => p.ospite);
 
@@ -1359,14 +1478,17 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
       </div>
 
       <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.chalk, marginBottom: 4 }}>
-        Gestione permessi
+        Rosa e permessi
       </div>
       <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 18 }}>
-        Assegna i ruoli. Un utente può avere più ruoli contemporaneamente.
+        Assegna i ruoli e modifica i dati dei giocatori. Un utente può avere più ruoli contemporaneamente.
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        {players.filter((p) => !rimossi.includes(p.id)).map((p) => (
+        {players.filter((p) => !rimossi.includes(p.id)).map((p) => {
+          const inModifica = modificaAttiva === p.id;
+          const bozza = bozzeModifica[p.id] || { name: p.name, ruolo_campo: p.ruolo_campo, soprannome: p.soprannome || "" };
+          return (
           <div
             key={p.id}
             style={{
@@ -1374,55 +1496,118 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
               borderRadius: 10,
               padding: "10px 14px",
               display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              flexWrap: "wrap",
-              gap: 8,
+              flexDirection: "column",
+              gap: 10,
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div
-                style={{
-                  width: 30, height: 30, borderRadius: "50%", background: p.colore,
-                  display: "flex", alignItems: "center", justifyContent: "center",
-                  fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 11.5, color: COLORS.chalk,
-                }}
-              >
-                {p.initials}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div
+                  style={{
+                    width: 30, height: 30, borderRadius: "50%", background: p.foto_url ? "transparent" : p.colore,
+                    display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden",
+                    fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 11.5, color: COLORS.chalk,
+                  }}
+                >
+                  {p.foto_url ? <img src={p.foto_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : p.initials}
+                </div>
+                <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 14, color: COLORS.chalk }}>
+                  {p.name}{p.soprannome ? ` "${p.soprannome}"` : ""}
+                </span>
+                {p.ospite && <span style={chip("rgba(229,83,60,0.15)", COLORS.red)}>Ospite</span>}
               </div>
-              <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 14, color: COLORS.chalk }}>
-                {p.name}
-              </span>
-              {p.ospite && <span style={chip("rgba(229,83,60,0.15)", COLORS.red)}>Ospite</span>}
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {!p.ospite && (
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {roleOptions.map((r) => {
+                      const active = p.ruolo_app === r;
+                      return (
+                        <button
+                          key={r}
+                          onClick={() => onPromuoviRuolo(p.id, r)}
+                          style={{
+                            padding: "5px 10px",
+                            borderRadius: 6,
+                            border: `1px solid ${active ? roleColor[r] : "rgba(255,255,255,0.15)"}`,
+                            background: active ? roleColor[r] : "transparent",
+                            color: active ? COLORS.pitchDark : COLORS.chalkDim,
+                            fontFamily: "Inter, sans-serif",
+                            fontWeight: 600,
+                            fontSize: 11,
+                            cursor: "pointer",
+                          }}
+                        >
+                          {roleLabel[r]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <button
+                  onClick={() => {
+                    setModificaAttiva(inModifica ? null : p.id);
+                    setBozzeModifica((b) => ({ ...b, [p.id]: { name: p.name, ruolo_campo: p.ruolo_campo, soprannome: p.soprannome || "" } }));
+                  }}
+                  style={{
+                    padding: "5px 10px", borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`,
+                    background: "transparent", color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 11, cursor: "pointer",
+                  }}
+                >
+                  {inModifica ? "Chiudi" : "Modifica"}
+                </button>
+              </div>
             </div>
-            {!p.ospite && (
-              <div style={{ display: "flex", gap: 6 }}>
-                {roleOptions.map((r) => {
-                  const active = p.ruolo_app === r;
-                  return (
-                    <button
-                      key={r}
-                      onClick={() => onPromuoviRuolo(p.id, r)}
-                      style={{
-                        padding: "5px 10px",
-                        borderRadius: 6,
-                        border: `1px solid ${active ? roleColor[r] : "rgba(255,255,255,0.15)"}`,
-                        background: active ? roleColor[r] : "transparent",
-                        color: active ? COLORS.pitchDark : COLORS.chalkDim,
-                        fontFamily: "Inter, sans-serif",
-                        fontWeight: 600,
-                        fontSize: 11,
-                        cursor: "pointer",
-                      }}
-                    >
-                      {roleLabel[r]}
-                    </button>
-                  );
-                })}
+
+            {inModifica && (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", paddingTop: 10, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+                <input
+                  value={bozza.name}
+                  onChange={(e) => setBozzeModifica((b) => ({ ...b, [p.id]: { ...bozza, name: e.target.value } }))}
+                  placeholder="Nome"
+                  style={{
+                    flex: 1, minWidth: 140, padding: "7px 10px", borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`,
+                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 12.5,
+                  }}
+                />
+                <input
+                  value={bozza.soprannome}
+                  onChange={(e) => setBozzeModifica((b) => ({ ...b, [p.id]: { ...bozza, soprannome: e.target.value } }))}
+                  placeholder="Soprannome"
+                  style={{
+                    flex: 1, minWidth: 120, padding: "7px 10px", borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`,
+                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 12.5,
+                  }}
+                />
+                <select
+                  value={bozza.ruolo_campo}
+                  onChange={(e) => setBozzeModifica((b) => ({ ...b, [p.id]: { ...bozza, ruolo_campo: e.target.value } }))}
+                  style={{
+                    padding: "7px 10px", borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`,
+                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 12.5,
+                  }}
+                >
+                  {ruoliCampo.map((r) => (
+                    <option key={r} value={r} style={{ background: COLORS.navy }}>{r}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={async () => {
+                    await onModificaGiocatore(p.id, bozza);
+                    setModificaAttiva(null);
+                  }}
+                  style={{
+                    padding: "7px 14px", borderRadius: 6, border: "none", cursor: "pointer",
+                    fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12,
+                    background: COLORS.floodlight, color: COLORS.pitchDark,
+                  }}
+                >
+                  Salva
+                </button>
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -1431,7 +1616,184 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
 /* ---------------------------------------------------------
    I MIEI DATI — riepilogo consensi e cancellazione
 --------------------------------------------------------- */
-function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione }) {
+function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) {
+  const [nome, setNome] = useState(myProfile?.name || "");
+  const [soprannome, setSoprannome] = useState(myProfile?.soprannome || "");
+  const [ruolo, setRuolo] = useState(myProfile?.ruolo_campo || "Centrocampo");
+  const [email, setEmail] = useState(session?.user?.email || "");
+  const [fotoFile, setFotoFile] = useState(null);
+  const [anteprimaFoto, setAnteprimaFoto] = useState(myProfile?.foto_url || null);
+
+  const [salvataggioInCorso, setSalvataggioInCorso] = useState(false);
+  const [salvato, setSalvato] = useState(false);
+  const [emailInCorso, setEmailInCorso] = useState(false);
+  const [emailInviata, setEmailInviata] = useState(false);
+  const [errore, setErrore] = useState("");
+
+  const ruoliCampo = ["Portiere", "Difensore", "Esterno Destro", "Esterno Sinistro", "Centrocampo", "Attaccante"];
+
+  const scegliFoto = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setFotoFile(file);
+    setAnteprimaFoto(URL.createObjectURL(file));
+  };
+
+  const salva = async () => {
+    setErrore("");
+    setSalvataggioInCorso(true);
+    try {
+      await onSalvaProfilo({ nome, soprannome, ruolo, fotoFile });
+      setSalvato(true);
+      setFotoFile(null);
+    } catch (e) {
+      setErrore(e.message || "Errore nel salvataggio.");
+    }
+    setSalvataggioInCorso(false);
+  };
+
+  const cambiaEmail = async () => {
+    if (!email || email === session?.user?.email) return;
+    setErrore("");
+    setEmailInCorso(true);
+    try {
+      await onCambiaEmail(email);
+      setEmailInviata(true);
+    } catch (e) {
+      setErrore(e.message || "Errore nel cambio email.");
+    }
+    setEmailInCorso(false);
+  };
+
+  return (
+    <div style={{ background: COLORS.navy, borderRadius: 12, padding: 20, marginBottom: 22 }}>
+      <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 18, color: COLORS.chalk, marginBottom: 14 }}>
+        Il mio profilo
+      </div>
+
+      {errore && (
+        <div style={{ background: "rgba(229,83,60,0.1)", border: `1px solid ${COLORS.red}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#ffb3a3", marginBottom: 12 }}>
+          {errore}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+        <div style={{ textAlign: "center" }}>
+          <div
+            style={{
+              width: 84, height: 84, borderRadius: "50%", overflow: "hidden",
+              background: anteprimaFoto ? "transparent" : myProfile?.colore || COLORS.pitchLine,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              border: `2px solid rgba(255,255,255,0.15)`, marginBottom: 8,
+            }}
+          >
+            {anteprimaFoto ? (
+              <img src={anteprimaFoto} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            ) : (
+              <span style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 28, color: COLORS.chalk }}>
+                {myProfile?.initials}
+              </span>
+            )}
+          </div>
+          <label
+            style={{
+              display: "inline-block", fontSize: 11, color: COLORS.floodlight, cursor: "pointer",
+              fontFamily: "Inter, sans-serif", textDecoration: "underline",
+            }}
+          >
+            Cambia foto
+            <input type="file" accept="image/*" onChange={scegliFoto} style={{ display: "none" }} />
+          </label>
+        </div>
+
+        <div style={{ flex: 1, minWidth: 200, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, color: COLORS.chalkDim, marginBottom: 4 }}>Nome e cognome</div>
+            <input
+              value={nome} onChange={(e) => setNome(e.target.value)}
+              style={{
+                width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 7,
+                border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+              }}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: COLORS.chalkDim, marginBottom: 4 }}>Soprannome (facoltativo)</div>
+            <input
+              value={soprannome} onChange={(e) => setSoprannome(e.target.value)} placeholder="Es. Er Bomber"
+              style={{
+                width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 7,
+                border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+              }}
+            />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: COLORS.chalkDim, marginBottom: 4 }}>Ruolo in campo</div>
+            <select
+              value={ruolo} onChange={(e) => setRuolo(e.target.value)}
+              style={{
+                width: "100%", padding: "8px 10px", borderRadius: 7,
+                border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+              }}
+            >
+              {ruoliCampo.map((r) => (
+                <option key={r} value={r} style={{ background: COLORS.navy }}>{r}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <button
+        onClick={salva}
+        disabled={salvataggioInCorso}
+        style={{
+          marginTop: 16, padding: "9px 16px", borderRadius: 8, border: "none",
+          cursor: salvataggioInCorso ? "not-allowed" : "pointer",
+          fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12.5,
+          background: COLORS.floodlight, color: COLORS.pitchDark,
+        }}
+      >
+        {salvataggioInCorso ? "Salvataggio…" : salvato ? "✓ Salvato — salva di nuovo per aggiornare" : "Salva profilo"}
+      </button>
+
+      <div style={{ marginTop: 20, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+        <div style={{ fontSize: 11, color: COLORS.chalkDim, marginBottom: 4 }}>Email di accesso</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <input
+            type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+            style={{
+              flex: 1, minWidth: 180, boxSizing: "border-box", padding: "8px 10px", borderRadius: 7,
+              border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+            }}
+          />
+          <button
+            onClick={cambiaEmail}
+            disabled={emailInCorso || !email || email === session?.user?.email}
+            style={{
+              padding: "8px 14px", borderRadius: 7, cursor: "pointer",
+              fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12,
+              border: `1px solid rgba(255,255,255,0.2)`, background: "transparent", color: COLORS.chalk,
+            }}
+          >
+            {emailInCorso ? "…" : "Aggiorna"}
+          </button>
+        </div>
+        {emailInviata && (
+          <div style={{ fontSize: 11, color: COLORS.chalkDim, marginTop: 6, fontFamily: "Inter, sans-serif" }}>
+            Controlla la posta per confermare il cambio email (se richiesto dalle impostazioni del gruppo).
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfile, session, onSalvaProfilo, onCambiaEmail }) {
   const righe = [
     { label: "Trattamento dati (presenze, voti, statistiche)", val: consensi?.consensoDati },
     { label: "Utilizzo foto per la figurina", val: consensi?.consensoFoto },
@@ -1450,6 +1812,7 @@ function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione }) {
         Consensi forniti in fase di registrazione{consensi?.timestamp ? ` · ${consensi.timestamp}` : ""} · accesso con {consensi?.metodo === "google" ? "Google" : "email e password"}
       </div>
 
+      <ModificaProfilo myProfile={myProfile} session={session} onSalvaProfilo={onSalvaProfilo} onCambiaEmail={onCambiaEmail} />
       <div style={{ background: COLORS.navy, borderRadius: 12, padding: 6, marginBottom: 22 }}>
         {righe.map((r, i) => (
           <div
@@ -1528,12 +1891,17 @@ function Onboarding({ onRegistrationSent }) {
 
   const puoConfermare = consensoDati && consensoFoto && maggiorenne;
 
-  const scegliMetodo = (m) => {
+  const scegliMetodo = async (m) => {
+    setErrore("");
     if (m === "google") {
-      setErrore("Il login con Google non è ancora attivo per questo gruppo. Usa l'email per ora.");
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: { redirectTo: window.location.origin },
+      });
+      if (error) setErrore("Google non è configurato correttamente: " + error.message);
+      // se va a buon fine il browser viene reindirizzato a Google, non serve altro qui
       return;
     }
-    setErrore("");
     setMetodo(m);
     setStep("form");
   };
@@ -1834,6 +2202,121 @@ function Onboarding({ onRegistrationSent }) {
 }
 
 /* ---------------------------------------------------------
+   COMPLETA PROFILO — dopo il primo accesso con Google
+--------------------------------------------------------- */
+function CompletaProfiloGoogle({ session, onCompletato }) {
+  const nomeSuggerito = session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.name || "";
+  const [nome, setNome] = useState(nomeSuggerito);
+  const [consensoDati, setConsensoDati] = useState(false);
+  const [consensoFoto, setConsensoFoto] = useState(false);
+  const [maggiorenne, setMaggiorenne] = useState(false);
+  const [caricamento, setCaricamento] = useState(false);
+  const [errore, setErrore] = useState("");
+
+  const puoConfermare = nome.trim() && consensoDati && consensoFoto && maggiorenne;
+
+  const Checkbox = ({ checked, onChange, children }) => (
+    <label style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer", fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalk, lineHeight: 1.5 }}>
+      <input
+        type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
+        style={{ marginTop: 3, width: 16, height: 16, accentColor: COLORS.floodlight, flexShrink: 0 }}
+      />
+      <span>{children}</span>
+    </label>
+  );
+
+  const completa = async () => {
+    setErrore("");
+    setCaricamento(true);
+    const initials = nome.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+    const { error } = await supabase.from("profiles").insert({
+      auth_user_id: session.user.id,
+      name: nome.trim(),
+      initials,
+      consenso_dati: consensoDati,
+      consenso_foto: consensoFoto,
+      maggiorenne,
+      consenso_timestamp: new Date().toISOString(),
+    });
+    setCaricamento(false);
+    if (error) {
+      setErrore(error.message);
+      return;
+    }
+    onCompletato();
+  };
+
+  return (
+    <div
+      style={{
+        minHeight: "100%", background: `radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
+        display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px", fontFamily: "Inter, sans-serif",
+      }}
+    >
+      <style>{FONT_IMPORT}</style>
+      <div style={{ width: "100%", maxWidth: 420, background: COLORS.navy, borderRadius: 18, padding: 30, border: `1px solid rgba(255,255,255,0.08)` }}>
+        <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 19, color: COLORS.chalk, marginBottom: 6 }}>
+          Ultimo passaggio
+        </div>
+        <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 18 }}>
+          Accesso con Google riuscito ({session?.user?.email}). Conferma il tuo nome e i consensi per inviare la richiesta all'organizzatore.
+        </div>
+
+        {errore && (
+          <div style={{ background: "rgba(229,83,60,0.1)", border: `1px solid ${COLORS.red}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#ffb3a3", marginBottom: 12 }}>
+            {errore}
+          </div>
+        )}
+
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ fontSize: 11.5, color: COLORS.chalkDim, marginBottom: 4 }}>Nome e cognome</div>
+          <input
+            value={nome} onChange={(e) => setNome(e.target.value)}
+            style={{
+              width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
+              border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+            }}
+          />
+        </div>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
+          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 12 }}>
+            <Checkbox checked={consensoDati} onChange={setConsensoDati}>
+              Acconsento al trattamento dei miei dati (nome, presenze, voti, statistiche) visibili agli altri membri del gruppo.
+            </Checkbox>
+          </div>
+          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 12 }}>
+            <Checkbox checked={consensoFoto} onChange={setConsensoFoto}>
+              Acconsento all'utilizzo della mia foto per la figurina personale.
+            </Checkbox>
+          </div>
+          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 12 }}>
+            <Checkbox checked={maggiorenne} onChange={setMaggiorenne}>
+              Confermo di essere maggiorenne.
+            </Checkbox>
+          </div>
+        </div>
+
+        <button
+          onClick={completa}
+          disabled={!puoConfermare || caricamento}
+          style={{
+            width: "100%", padding: "12px 0", borderRadius: 10, border: "none",
+            cursor: puoConfermare && !caricamento ? "pointer" : "not-allowed",
+            background: puoConfermare && !caricamento ? COLORS.floodlight : "rgba(255,255,255,0.1)",
+            color: puoConfermare && !caricamento ? COLORS.pitchDark : COLORS.chalkDim,
+            fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 14,
+          }}
+        >
+          {caricamento ? "Invio…" : "Invia richiesta di registrazione"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
    SCHERMATE DI ATTESA / STATO ACCOUNT
 --------------------------------------------------------- */
 function SchermataStato({ icona, titolo, testo, onEsci }) {
@@ -1909,24 +2392,21 @@ export default function CalcettoApp() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
+  const ricaricaMioProfilo = async () => {
+    if (!session) {
+      setProfileStatus(null);
+      setMyProfile(null);
+      return;
+    }
+    const { data } = await supabase.from("profiles").select("*").eq("auth_user_id", session.user.id).maybeSingle();
+    setMyProfile(data || null);
+    setProfileStatus(data ? data.stato_registrazione : "nessuno");
+  };
+
   // Quando cambia la sessione, controlla se esiste un profilo e il suo stato
   useEffect(() => {
-    let annullato = false;
-    async function caricaProfilo() {
-      if (!session) {
-        setProfileStatus(null);
-        setMyProfile(null);
-        return;
-      }
-      const { data } = await supabase.from("profiles").select("*").eq("auth_user_id", session.user.id).maybeSingle();
-      if (annullato) return;
-      setMyProfile(data || null);
-      setProfileStatus(data ? data.stato_registrazione : "nessuno");
-    }
-    caricaProfilo();
-    return () => {
-      annullato = true;
-    };
+    ricaricaMioProfilo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
   // Converte una riga 'profiles' di Supabase nel formato usato dai componenti
@@ -1939,6 +2419,7 @@ export default function CalcettoApp() {
     squadraNeri: row.squadra_neri || [],
     risultato: row.risultato_bianchi != null && row.risultato_neri != null ? { bianchi: row.risultato_bianchi, neri: row.risultato_neri } : null,
     gol: row.gol || {},
+    autogol: row.autogol || {},
     buche: row.buche || [],
   });
 
@@ -2057,6 +2538,40 @@ export default function CalcettoApp() {
     await caricaGiocatori();
   };
 
+  const modificaGiocatore = async (playerId, { name, soprannome, ruolo_campo }) => {
+    const initials = name.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+    await supabase
+      .from("profiles")
+      .update({ name: name.trim(), soprannome: soprannome?.trim() || null, ruolo_campo, initials })
+      .eq("id", playerId);
+    await caricaGiocatori();
+  };
+
+  const salvaProfilo = async ({ nome, soprannome, ruolo, fotoFile }) => {
+    if (!myProfile) return;
+    let foto_url = myProfile.foto_url;
+    if (fotoFile) {
+      const estensione = fotoFile.name.split(".").pop();
+      const percorso = `${myProfile.id}-${Date.now()}.${estensione}`;
+      const { error: erroreUpload } = await supabase.storage.from("foto-profilo").upload(percorso, fotoFile, { upsert: true });
+      if (erroreUpload) throw erroreUpload;
+      const { data } = supabase.storage.from("foto-profilo").getPublicUrl(percorso);
+      foto_url = data.publicUrl;
+    }
+    const initials = nome.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+    const { error } = await supabase
+      .from("profiles")
+      .update({ name: nome.trim(), soprannome: soprannome.trim() || null, ruolo_campo: ruolo, initials, foto_url })
+      .eq("id", myProfile.id);
+    if (error) throw error;
+    await Promise.all([caricaGiocatori(), ricaricaMioProfilo()]);
+  };
+
+  const cambiaEmail = async (nuovaEmail) => {
+    const { error } = await supabase.auth.updateUser({ email: nuovaEmail });
+    if (error) throw error;
+  };
+
   const creaPartita = async ({ giorno, data, ora, campo }) => {
     await supabase.from("matches").insert({
       giorno,
@@ -2077,18 +2592,24 @@ export default function CalcettoApp() {
     await caricaPartite();
   };
 
-  const salvaRisultato = async (matchId, { bianchi, neri, gol, mvp, buche }) => {
+  const salvaRisultato = async (matchId, { bianchi, neri, gol, autogol, mvp, buche }) => {
     await supabase
       .from("matches")
       .update({
         risultato_bianchi: bianchi,
         risultato_neri: neri,
         gol,
+        autogol,
         mvp: mvp || null,
         buche,
         stato: "storico",
       })
       .eq("id", matchId);
+    await caricaPartite();
+  };
+
+  const eliminaPartita = async (matchId) => {
+    await supabase.from("matches").delete().eq("id", matchId);
     await caricaPartite();
   };
 
@@ -2128,9 +2649,9 @@ export default function CalcettoApp() {
     ],
     organizer: [
       { id: "dashboard", label: "Dashboard" },
-      { id: "formazione", label: "Formazione" },
+      { id: "formazione", label: "Crea Partita" },
       { id: "risultato", label: "Risultato" },
-      { id: "permessi", label: "Permessi" },
+      { id: "permessi", label: "Giocatori" },
       { id: "squadra", label: "Squadra" },
       { id: "storico", label: "Storico" },
       { id: "voti", label: "Vota partita" },
@@ -2166,7 +2687,11 @@ export default function CalcettoApp() {
     );
   }
 
-  if (profileStatus === "in_attesa" || profileStatus === "nessuno") {
+  if (profileStatus === "nessuno") {
+    return <CompletaProfiloGoogle session={session} onCompletato={ricaricaMioProfilo} />;
+  }
+
+  if (profileStatus === "in_attesa") {
     return (
       <SchermataStato
         icona="⏳"
@@ -2243,7 +2768,7 @@ export default function CalcettoApp() {
         <Formazione players={playersConGol} matches={matches} onSalvaFormazione={salvaFormazione} onCreaPartita={creaPartita} />
       )}
       {role === "organizer" && activeTab === "risultato" && (
-        <Risultato players={playersConGol} matches={matches} onSalvaRisultato={salvaRisultato} />
+        <Risultato players={playersConGol} matches={matches} onSalvaRisultato={salvaRisultato} onEliminaPartita={eliminaPartita} />
       )}
       {role === "organizer" && activeTab === "permessi" && (
         <Admin
@@ -2253,6 +2778,7 @@ export default function CalcettoApp() {
           onCompletaRichiesta={(richiesta) => completaRichiestaCancellazione(richiesta)}
           onAggiungiGiocatore={aggiungiGiocatore}
           onPromuoviRuolo={promuoviRuolo}
+          onModificaGiocatore={modificaGiocatore}
           richiesteRegistrazione={richiesteRegistrazione}
           onApprovaRegistrazione={approvaRegistrazione}
           onRifiutaRegistrazione={rifiutaRegistrazione}
@@ -2263,6 +2789,10 @@ export default function CalcettoApp() {
           consensi={consensi}
           richiestaInviata={richiesteCancellazione.some((r) => r.playerId === currentPlayerId)}
           onRichiediCancellazione={richiediCancellazioneMiaAccount}
+          myProfile={myProfile}
+          session={session}
+          onSalvaProfilo={salvaProfilo}
+          onCambiaEmail={cambiaEmail}
         />
       )}
     </div>

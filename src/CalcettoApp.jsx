@@ -145,6 +145,25 @@ function bucheTotaliPerGiocatore(matches) {
   return tot;
 }
 
+function autogolTotaliPerGiocatore(matches) {
+  const tot = {};
+  matches.forEach((m) => {
+    Object.entries(m.autogol || {}).forEach(([pid, n]) => {
+      tot[pid] = (tot[pid] || 0) + n;
+    });
+  });
+  return tot;
+}
+
+// Le date arrivano da Supabase in formato AAAA-MM-GG: le mostriamo all'italiana.
+function formattaDataIT(iso) {
+  if (!iso) return "";
+  const parti = String(iso).split("-");
+  if (parti.length !== 3) return iso;
+  const [y, m, d] = parti;
+  return `${d}-${m}-${y}`;
+}
+
 // Media troncata: con più di 2 voti esclude il più alto e il più basso.
 function mediaTroncata(voti) {
   if (!voti || voti.length === 0) return null;
@@ -181,6 +200,20 @@ function presenzeAssenzePerGiocatore(matches) {
 /* ---------------------------------------------------------
    SQUADRA CHIP (bianchi/neri)
 --------------------------------------------------------- */
+function MiniAvatar({ p, size = 30 }) {
+  return (
+    <div
+      style={{
+        width: size, height: size, borderRadius: "50%", background: p.foto_url ? "transparent" : p.colore,
+        display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden", flexShrink: 0,
+        fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: size * 0.4, color: COLORS.chalk,
+      }}
+    >
+      {p.foto_url ? <img src={p.foto_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : p.initials}
+    </div>
+  );
+}
+
 function SquadraBadge({ tipo }) {
   const bianchi = tipo === "bianchi";
   return (
@@ -330,14 +363,10 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true }) {
 /* ---------------------------------------------------------
    ROLE SWITCHER
 --------------------------------------------------------- */
-function RoleSwitcher({ role, setRole }) {
-  const roles = [
-    { id: "player", label: "Giocatore" },
-    { id: "organizer", label: "Organizzatore" },
-  ];
+function RoleSwitcher({ role, setRole, opzioni }) {
   return (
     <div style={{ display: "flex", gap: 6, background: "rgba(0,0,0,0.25)", padding: 4, borderRadius: 10 }}>
-      {roles.map((r) => (
+      {opzioni.map((r) => (
         <button
           key={r.id}
           onClick={() => setRole(r.id)}
@@ -365,7 +394,7 @@ function RoleSwitcher({ role, setRole }) {
 /* ---------------------------------------------------------
    SECTION TABS
 --------------------------------------------------------- */
-function Tabs({ tabs, active, setActive }) {
+function Tabs({ tabs, active, setActive, badges = {} }) {
   return (
     <div style={{ display: "flex", gap: 22, borderBottom: `1px solid ${COLORS.pitchLine}`, marginBottom: 20, flexWrap: "wrap" }}>
       {tabs.map((t) => (
@@ -383,9 +412,21 @@ function Tabs({ tabs, active, setActive }) {
             letterSpacing: 0.3,
             color: active === t.id ? COLORS.floodlight : COLORS.chalkDim,
             borderBottom: active === t.id ? `2px solid ${COLORS.floodlight}` : "2px solid transparent",
+            position: "relative",
           }}
         >
           {t.label}
+          {badges[t.id] > 0 && (
+            <span
+              style={{
+                position: "absolute", top: -4, right: -14, background: COLORS.red, color: COLORS.chalk,
+                borderRadius: 999, fontSize: 10, fontFamily: "Inter, sans-serif", fontWeight: 700,
+                minWidth: 16, height: 16, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px",
+              }}
+            >
+              {badges[t.id] > 9 ? "9+" : badges[t.id]}
+            </span>
+          )}
         </button>
       ))}
     </div>
@@ -395,9 +436,10 @@ function Tabs({ tabs, active, setActive }) {
 /* ---------------------------------------------------------
    DASHBOARD (giocatore)
 --------------------------------------------------------- */
-function Dashboard({ players, matches, currentPlayerId }) {
+function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore, onVaiACreaPartita, rimossi = [] }) {
   const match = matches.find((m) => m.stato === "aperta");
   const me = players.find((p) => p.id === currentPlayerId);
+  const [dettaglioAperto, setDettaglioAperto] = useState(false);
 
   const miaSquadra = match
     ? match.squadraBianchi.includes(currentPlayerId)
@@ -410,12 +452,14 @@ function Dashboard({ players, matches, currentPlayerId }) {
   return (
     <div>
       <div
+        onClick={sonoOrganizzatore && match ? onVaiACreaPartita : undefined}
         style={{
           background: `linear-gradient(120deg, ${COLORS.pitchMid}, ${COLORS.pitchDark})`,
           borderRadius: 16,
           padding: 22,
           border: `1px solid ${COLORS.pitchLine}`,
           marginBottom: 24,
+          cursor: sonoOrganizzatore && match ? "pointer" : "default",
         }}
       >
         {match ? (
@@ -425,20 +469,22 @@ function Dashboard({ players, matches, currentPlayerId }) {
               {miaSquadra && <SquadraBadge tipo={miaSquadra} />}
             </div>
             <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 800, fontSize: 30, color: COLORS.chalk, marginTop: 10 }}>
-              {match.data} · {match.ora}
+              {formattaDataIT(match.data)} · {match.ora}
             </div>
             <div style={{ fontFamily: "Inter, sans-serif", color: COLORS.chalkDim, fontSize: 14, marginTop: 2, marginBottom: 4 }}>
               📍 {match.campo}
             </div>
             <div style={{ fontSize: 11.5, color: COLORS.chalkDim, marginTop: 14, fontFamily: "Inter, sans-serif" }}>
-              {miaSquadra
+              {sonoOrganizzatore
+                ? "Tocca qui per modificare la formazione in Crea Partita."
+                : miaSquadra
                 ? "Le formazioni verranno inoltrate nel gruppo WhatsApp dall'organizzatore."
                 : "L'organizzatore non ha ancora composto le squadre per questa partita."}
             </div>
           </>
         ) : (
           <div style={{ fontFamily: "Inter, sans-serif", color: COLORS.chalkDim, fontSize: 13.5 }}>
-            Nessuna partita in programma al momento. L'organizzatore ne creerà una a breve.
+            Nessuna partita in programma al momento. {sonoOrganizzatore ? "Tocca qui per crearne una." : "L'organizzatore ne creerà una a breve."}
           </div>
         )}
       </div>
@@ -448,8 +494,12 @@ function Dashboard({ players, matches, currentPlayerId }) {
           <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.chalk, marginBottom: 10 }}>
             La tua figurina
           </div>
-          <PlayerCard p={me} />
+          <PlayerCard p={me} onClick={() => setDettaglioAperto(true)} />
         </>
+      )}
+
+      {dettaglioAperto && me && (
+        <DettaglioGiocatore player={me} matches={matches} voti={voti} onChiudi={() => setDettaglioAperto(false)} />
       )}
     </div>
   );
@@ -548,7 +598,7 @@ function DettaglioGiocatore({ player, matches, voti, onChiudi }) {
                 }}
               >
                 <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalk }}>
-                  {match.giorno} {match.data}
+                  {match.giorno} {formattaDataIT(match.data)}
                 </span>
                 <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 14, color: media != null ? COLORS.floodlight : COLORS.chalkDim }}>
                   {media != null ? `${media.toFixed(1)} (${numero} voti)` : "nessun voto"}
@@ -601,7 +651,7 @@ function Storico({ players, matches, rimossi = [], voti = [] }) {
     ctx.fillText("📋 PAGELLA DELLA PARTITA", W / 2, 100);
     ctx.fillStyle = "#F2F0E9";
     ctx.font = "bold 50px sans-serif";
-    ctx.fillText(`${m.giorno.toUpperCase()} ${m.data}`, W / 2, 168);
+    ctx.fillText(`${m.giorno.toUpperCase()} ${formattaDataIT(m.data)}`, W / 2, 168);
     ctx.font = "30px sans-serif";
     ctx.fillStyle = "#B9C4BC";
     ctx.fillText(`Risultato finale: ${m.risultato.bianchi} — ${m.risultato.neri}`, W / 2, 214);
@@ -652,7 +702,7 @@ function Storico({ players, matches, rimossi = [], voti = [] }) {
             <div key={m.id} style={{ background: COLORS.navy, borderRadius: 12, padding: "16px 18px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
                 <div>
-                  <div style={chip("rgba(255,255,255,0.08)", COLORS.chalkDim)}>{m.giorno.toUpperCase()} · {m.data}</div>
+                  <div style={chip("rgba(255,255,255,0.08)", COLORS.chalkDim)}>{m.giorno.toUpperCase()} · {formattaDataIT(m.data)}</div>
                 </div>
                 {m.mvp && (
                   <span style={chip("rgba(255,200,87,0.15)", COLORS.floodlight)}>🏅 MVP: {nomeById(players, m.mvp, rimossi)}</span>
@@ -864,7 +914,7 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
   return (
     <div>
       <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.chalk, marginBottom: 4 }}>
-        Vota i compagni · {match.giorno} {match.data}
+        Vota i compagni · {match.giorno} {formattaDataIT(match.data)}
       </div>
       <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 18 }}>
         Voti anonimi da 1 a 10. La media finale esclude il voto più alto e più basso ricevuti.
@@ -926,15 +976,7 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
             >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div
-                    style={{
-                      width: 34, height: 34, borderRadius: "50%", background: p.colore,
-                      display: "flex", alignItems: "center", justifyContent: "center",
-                      fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 13, color: COLORS.chalk,
-                    }}
-                  >
-                    {p.initials}
-                  </div>
+                  <MiniAvatar p={p} size={34} />
                   <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 14.5, color: COLORS.chalk }}>
                     {p.name}
                   </div>
@@ -1009,7 +1051,7 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
 /* ---------------------------------------------------------
    PANNELLO ORGANIZZATORE — Risultato e gol
 --------------------------------------------------------- */
-function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita }) {
+function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti = [] }) {
   const partiteGestibili = [...matches].sort((a, b) => new Date(b.data) - new Date(a.data));
   const apertaId = matches.find((m) => m.stato === "aperta")?.id;
 
@@ -1023,6 +1065,7 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita }) {
   const [salvataggioInCorso, setSalvataggioInCorso] = useState(false);
   const [salvato, setSalvato] = useState(false);
   const [confermaEliminazione, setConfermaEliminazione] = useState(false);
+  const [mostraVotiDettaglio, setMostraVotiDettaglio] = useState(false);
   const [eliminazioneInCorso, setEliminazioneInCorso] = useState(false);
 
   useEffect(() => {
@@ -1107,7 +1150,7 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita }) {
       >
         {partiteGestibili.map((m) => (
           <option key={m.id} value={m.id} style={{ background: COLORS.navy }}>
-            {m.giorno} {m.data} · {m.stato === "aperta" ? "aperta, senza risultato" : `storico ${m.risultato ? `(${m.risultato.bianchi}-${m.risultato.neri})` : ""}`}
+            {m.giorno} {formattaDataIT(m.data)} · {m.stato === "aperta" ? "aperta, senza risultato" : `storico ${m.risultato ? `(${m.risultato.bianchi}-${m.risultato.neri})` : ""}`}
           </option>
         ))}
       </select>
@@ -1150,15 +1193,7 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita }) {
               }}
             >
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div
-                  style={{
-                    width: 28, height: 28, borderRadius: "50%", background: p.colore,
-                    display: "flex", alignItems: "center", justifyContent: "center",
-                    fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 10.5, color: COLORS.chalk,
-                  }}
-                >
-                  {p.initials}
-                </div>
+                <MiniAvatar p={p} size={28} />
                 <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: COLORS.chalk, textDecoration: haDatoBuca ? "line-through" : "none" }}>
                   {p.name}
                 </span>
@@ -1245,6 +1280,55 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita }) {
       >
         {salvato ? "✓ Salvato — salva di nuovo per aggiornare" : salvataggioInCorso ? "Salvataggio…" : "Salva risultato"}
       </button>
+
+      {(() => {
+        const votiPartita = voti.filter((v) => v.match_id === match.id);
+        const votantiUnici = [...new Set(votiPartita.map((v) => v.votante_id))];
+        const chiDeveVotare = partecipanti.filter((p) => !buche.includes(p.id));
+        return (
+          <div style={{ marginTop: 22, paddingTop: 16, borderTop: "1px solid rgba(255,255,255,0.08)" }}>
+            <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 16, color: COLORS.chalk, marginBottom: 10 }}>
+              Voti di questa partita <span style={{ color: COLORS.chalkDim, fontSize: 12.5, fontFamily: "Inter, sans-serif" }}>({votantiUnici.length}/{chiDeveVotare.length} hanno votato)</span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
+              {chiDeveVotare.map((p) => {
+                const haVotato = votantiUnici.includes(p.id);
+                return (
+                  <span key={p.id} style={chip(haVotato ? "rgba(76,175,109,0.15)" : "rgba(255,255,255,0.06)", haVotato ? COLORS.green : COLORS.chalkDim)}>
+                    {haVotato ? "✓" : "…"} {p.name}
+                  </span>
+                );
+              })}
+            </div>
+
+            <button
+              onClick={() => setMostraVotiDettaglio((v) => !v)}
+              style={{
+                background: "none", border: `1px solid ${COLORS.red}`, borderRadius: 7, cursor: "pointer",
+                color: COLORS.red, fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 11.5, padding: "5px 10px",
+              }}
+            >
+              {mostraVotiDettaglio ? "▲ Nascondi voti" : "⚠️ Mostra anche i voti (rompe l'anonimato)"}
+            </button>
+
+            {mostraVotiDettaglio && (
+              <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                {votiPartita.length === 0 && (
+                  <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 12.5 }}>Nessun voto ancora.</div>
+                )}
+                {votiPartita.map((v, i) => (
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", background: "rgba(229,83,60,0.06)", borderRadius: 7, padding: "7px 10px" }}>
+                    <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: COLORS.chalk }}>
+                      {nomeById(players, v.votante_id)} → {nomeById(players, v.votato_id)}
+                    </span>
+                    <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 13, color: COLORS.floodlight }}>{Number(v.voto).toFixed(1)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
         </>
       )}
 
@@ -1280,7 +1364,7 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita }) {
 /* ---------------------------------------------------------
    FORMAZIONE — scelta squadre + generazione immagine da condividere
 --------------------------------------------------------- */
-function Formazione({ players, matches, onSalvaFormazione, onCreaPartita }) {
+function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggiungiGiocatore }) {
   const match = matches.find((m) => m.stato === "aperta");
   const canvasRef = useRef(null);
 
@@ -1293,6 +1377,21 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita }) {
   const [nuovaOra, setNuovaOra] = useState("21:00");
   const [nuovoCampo, setNuovoCampo] = useState("Centro Sportivo San Siro");
   const [creazioneInCorso, setCreazioneInCorso] = useState(false);
+
+  const [mostraAggiungiGiocatore, setMostraAggiungiGiocatore] = useState(false);
+  const [nomeOspite, setNomeOspite] = useState("");
+  const [ruoloOspite, setRuoloOspite] = useState("Centrocampo");
+  const [aggiuntaInCorso, setAggiuntaInCorso] = useState(false);
+  const ruoliOspite = ["Portiere", "Difensore", "Esterno Destro", "Esterno Sinistro", "Centrocampo", "Attaccante"];
+
+  const aggiungiOspiteRapido = async () => {
+    if (!nomeOspite.trim()) return;
+    setAggiuntaInCorso(true);
+    await onAggiungiGiocatore({ nome: nomeOspite.trim(), ruolo: ruoloOspite });
+    setAggiuntaInCorso(false);
+    setNomeOspite("");
+    setMostraAggiungiGiocatore(false);
+  };
 
   useEffect(() => {
     if (!match) {
@@ -1360,7 +1459,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita }) {
     ctx.fillText("⚽ CALCETTO", W / 2, 110);
     ctx.fillStyle = "#F2F0E9";
     ctx.font = "bold 56px sans-serif";
-    ctx.fillText(`${match.giorno.toUpperCase()} ${match.data}`, W / 2, 180);
+    ctx.fillText(`${match.giorno.toUpperCase()} ${formattaDataIT(match.data)}`, W / 2, 180);
     ctx.font = "32px sans-serif";
     ctx.fillStyle = "#B9C4BC";
     ctx.fillText(`${match.ora} · ${match.campo}`, W / 2, 226);
@@ -1507,10 +1606,70 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita }) {
   return (
     <div>
       <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.chalk, marginBottom: 4 }}>
-        Formazione · {match.giorno} {match.data}
+        Formazione · {match.giorno} {formattaDataIT(match.data)}
       </div>
-      <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 18 }}>
+      <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 14 }}>
         Tocca un giocatore per assegnarlo a Bianchi, Neri o escluderlo dalla partita. Salva, poi scarica l'immagine e inoltrala dal tuo WhatsApp.
+      </div>
+
+      <div style={{ marginBottom: 18 }}>
+        {!mostraAggiungiGiocatore ? (
+          <button
+            onClick={() => setMostraAggiungiGiocatore(true)}
+            style={{
+              background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 8, cursor: "pointer",
+              color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12, padding: "6px 12px",
+            }}
+          >
+            + Aggiungi un giocatore (es. avversario per l'amichevole)
+          </button>
+        ) : (
+          <div style={{ background: COLORS.navy, borderRadius: 10, padding: 14, maxWidth: 420 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <input
+                value={nomeOspite}
+                onChange={(e) => setNomeOspite(e.target.value)}
+                placeholder="Nome e cognome"
+                style={{
+                  flex: 1, minWidth: 150, padding: "8px 10px", borderRadius: 7,
+                  border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                }}
+              />
+              <select
+                value={ruoloOspite}
+                onChange={(e) => setRuoloOspite(e.target.value)}
+                style={{
+                  padding: "8px 10px", borderRadius: 7, border: `1px solid rgba(255,255,255,0.15)`,
+                  background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                }}
+              >
+                {ruoliOspite.map((r) => (
+                  <option key={r} value={r} style={{ background: COLORS.navy }}>{r}</option>
+                ))}
+              </select>
+              <button
+                onClick={aggiungiOspiteRapido}
+                disabled={!nomeOspite.trim() || aggiuntaInCorso}
+                style={{
+                  padding: "8px 14px", borderRadius: 7, border: "none",
+                  cursor: nomeOspite.trim() && !aggiuntaInCorso ? "pointer" : "not-allowed",
+                  background: nomeOspite.trim() && !aggiuntaInCorso ? COLORS.floodlight : "rgba(255,255,255,0.1)",
+                  color: nomeOspite.trim() && !aggiuntaInCorso ? COLORS.pitchDark : COLORS.chalkDim,
+                  fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12.5,
+                }}
+              >
+                {aggiuntaInCorso ? "…" : "Aggiungi"}
+              </button>
+            </div>
+            <button
+              onClick={() => setMostraAggiungiGiocatore(false)}
+              style={{ background: "none", border: "none", color: COLORS.chalkDim, fontSize: 11, cursor: "pointer", fontFamily: "Inter, sans-serif", marginTop: 8, padding: 0 }}
+            >
+              Annulla
+            </button>
+          </div>
+        )}
       </div>
 
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 22 }}>
@@ -1599,10 +1758,10 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita }) {
 /* ---------------------------------------------------------
    PANNELLO ADMIN
 --------------------------------------------------------- */
-function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiungiGiocatore, richiesteRegistrazione = [], onApprovaRegistrazione, onRifiutaRegistrazione, onPromuoviRuolo, onModificaGiocatore }) {
-  const roleOptions = ["organizer", "player"];
-  const roleLabel = { organizer: "Organizzatore", player: "Giocatore" };
-  const roleColor = { organizer: COLORS.floodlight, player: COLORS.green };
+function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiungiGiocatore, richiesteRegistrazione = [], onApprovaRegistrazione, onRifiutaRegistrazione, onPromuoviRuolo, onModificaGiocatore, onEliminaGiocatoreOspite, onUnisciGiocatori }) {
+  const roleOptions = ["organizer", "allenatore", "player"];
+  const roleLabel = { organizer: "Organizzatore", allenatore: "Allenatore", player: "Giocatore" };
+  const roleColor = { organizer: COLORS.floodlight, allenatore: "#7EC8E3", player: COLORS.green };
   const ruoliCampo = ["Portiere", "Difensore", "Esterno Destro", "Esterno Sinistro", "Centrocampo", "Attaccante"];
 
   const [nomeNuovo, setNomeNuovo] = useState("");
@@ -1610,8 +1769,28 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
   const [collegamentoScelto, setCollegamentoScelto] = useState({});
   const [modificaAttiva, setModificaAttiva] = useState(null);
   const [bozzeModifica, setBozzeModifica] = useState({});
+  const [confermaEliminaOspite, setConfermaEliminaOspite] = useState(null);
+  const [profiloTenere, setProfiloTenere] = useState("");
+  const [profiloEliminare, setProfiloEliminare] = useState("");
+  const [confermaUnione, setConfermaUnione] = useState(false);
+  const [unioneInCorso, setUnioneInCorso] = useState(false);
+  const [erroreUnione, setErroreUnione] = useState("");
 
   const ospitiDisponibili = players.filter((p) => p.ospite);
+
+  // Preseleziona automaticamente un ospite se il nome combacia con la richiesta
+  useEffect(() => {
+    setCollegamentoScelto((precedente) => {
+      const aggiornato = { ...precedente };
+      richiesteRegistrazione.forEach((r) => {
+        if (aggiornato[r.id] !== undefined) return; // scelta già fatta manualmente, non toccarla
+        const match = ospitiDisponibili.find((o) => o.name.trim().toLowerCase() === (r.name || "").trim().toLowerCase());
+        if (match) aggiornato[r.id] = match.id;
+      });
+      return aggiornato;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [richiesteRegistrazione, ospitiDisponibili.length]);
 
   const aggiungi = () => {
     if (!nomeNuovo.trim()) return;
@@ -1638,6 +1817,12 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
                 <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13.5, color: COLORS.chalk, marginBottom: 8 }}>
                   <strong>{r.name}</strong> · registrazione del {new Date(r.created_at).toLocaleDateString("it-IT")}
                 </div>
+
+                {collegamentoScelto[r.id] && ospitiDisponibili.some((o) => o.id === collegamentoScelto[r.id]) && (
+                  <div style={{ background: "rgba(76,175,109,0.1)", border: `1px solid ${COLORS.green}`, borderRadius: 7, padding: "6px 10px", marginBottom: 10, fontFamily: "Inter, sans-serif", fontSize: 11.5, color: COLORS.green }}>
+                    ✓ Trovato un ospite con lo stesso nome — preselezionato qui sotto, controlla prima di approvare.
+                  </div>
+                )}
 
                 {ospitiDisponibili.length > 0 && (
                   <div style={{ marginBottom: 10 }}>
@@ -1775,6 +1960,88 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
         </div>
       </div>
 
+      <div style={{ background: COLORS.navy, borderRadius: 12, padding: 18, marginBottom: 26 }}>
+        <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 17, color: COLORS.chalk, marginBottom: 4 }}>
+          🔗 Unisci due profili duplicati
+        </div>
+        <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: COLORS.chalkDim, marginBottom: 14, lineHeight: 1.6 }}>
+          Se la stessa persona è finita in due schede diverse (es. un ospite e un account registrato), unisci qui: tutta la storia — formazioni, gol, autogol, buche, MVP, voti — passa al profilo da mantenere, e l'altro viene eliminato.
+        </div>
+
+        {erroreUnione && (
+          <div style={{ background: "rgba(229,83,60,0.1)", border: `1px solid ${COLORS.red}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#ffb3a3", marginBottom: 12 }}>
+            {erroreUnione}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ fontSize: 11, color: COLORS.chalkDim, marginBottom: 4 }}>Profilo da mantenere</div>
+            <select
+              value={profiloTenere}
+              onChange={(e) => { setProfiloTenere(e.target.value); setConfermaUnione(false); }}
+              style={{
+                width: "100%", padding: "9px 12px", borderRadius: 8,
+                border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+              }}
+            >
+              <option value="" style={{ background: COLORS.navy }}>— Scegli —</option>
+              {players.map((p) => (
+                <option key={p.id} value={p.id} style={{ background: COLORS.navy }}>{p.name}{p.ospite ? " (ospite)" : ""}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ flex: 1, minWidth: 180 }}>
+            <div style={{ fontSize: 11, color: COLORS.chalkDim, marginBottom: 4 }}>Profilo da eliminare (assorbito nel primo)</div>
+            <select
+              value={profiloEliminare}
+              onChange={(e) => { setProfiloEliminare(e.target.value); setConfermaUnione(false); }}
+              style={{
+                width: "100%", padding: "9px 12px", borderRadius: 8,
+                border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+              }}
+            >
+              <option value="" style={{ background: COLORS.navy }}>— Scegli —</option>
+              {players.filter((p) => p.id !== profiloTenere).map((p) => (
+                <option key={p.id} value={p.id} style={{ background: COLORS.navy }}>{p.name}{p.ospite ? " (ospite)" : ""}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={async () => {
+              if (!profiloTenere || !profiloEliminare) return;
+              if (!confermaUnione) {
+                setConfermaUnione(true);
+                return;
+              }
+              setErroreUnione("");
+              setUnioneInCorso(true);
+              try {
+                await onUnisciGiocatori(profiloTenere, profiloEliminare);
+                setProfiloTenere("");
+                setProfiloEliminare("");
+                setConfermaUnione(false);
+              } catch (e) {
+                setErroreUnione(e.message || "Errore durante l'unione.");
+              }
+              setUnioneInCorso(false);
+            }}
+            disabled={!profiloTenere || !profiloEliminare || unioneInCorso}
+            style={{
+              padding: "9px 16px", borderRadius: 8, cursor: profiloTenere && profiloEliminare && !unioneInCorso ? "pointer" : "not-allowed",
+              fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 13,
+              border: confermaUnione ? `1px solid ${COLORS.red}` : "none",
+              background: unioneInCorso ? "rgba(255,255,255,0.1)" : confermaUnione ? COLORS.red : COLORS.floodlight,
+              color: unioneInCorso ? COLORS.chalkDim : confermaUnione ? COLORS.chalk : COLORS.pitchDark,
+            }}
+          >
+            {unioneInCorso ? "Unione…" : confermaUnione ? "Conferma: unisci definitivamente" : "Unisci"}
+          </button>
+        </div>
+      </div>
+
       <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.chalk, marginBottom: 4 }}>
         Rosa e permessi
       </div>
@@ -1800,15 +2067,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
           >
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div
-                  style={{
-                    width: 30, height: 30, borderRadius: "50%", background: p.foto_url ? "transparent" : p.colore,
-                    display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden",
-                    fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 11.5, color: COLORS.chalk,
-                  }}
-                >
-                  {p.foto_url ? <img src={p.foto_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} /> : p.initials}
-                </div>
+                <MiniAvatar p={p} size={30} />
                 <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 14, color: COLORS.chalk }}>
                   {p.name}{p.soprannome ? ` "${p.soprannome}"` : ""}
                 </span>
@@ -1853,6 +2112,26 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
                 >
                   {inModifica ? "Chiudi" : "Modifica"}
                 </button>
+                {p.ospite && (
+                  <button
+                    onClick={() => {
+                      if (confermaEliminaOspite === p.id) {
+                        onEliminaGiocatoreOspite(p.id);
+                        setConfermaEliminaOspite(null);
+                      } else {
+                        setConfermaEliminaOspite(p.id);
+                      }
+                    }}
+                    style={{
+                      padding: "5px 10px", borderRadius: 6, border: `1px solid ${COLORS.red}`,
+                      background: confermaEliminaOspite === p.id ? COLORS.red : "transparent",
+                      color: confermaEliminaOspite === p.id ? COLORS.chalk : COLORS.red,
+                      fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 11, cursor: "pointer",
+                    }}
+                  >
+                    {confermaEliminaOspite === p.id ? "Conferma elimina" : "🗑️ Elimina"}
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1914,6 +2193,119 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
 /* ---------------------------------------------------------
    I MIEI DATI — riepilogo consensi e cancellazione
 --------------------------------------------------------- */
+/* ---------------------------------------------------------
+   CHAT INTERNA — bacheca condivisa del gruppo
+--------------------------------------------------------- */
+function ChatInterna({ messaggi, players, currentPlayerId, onInvia, onElimina }) {
+  const [testo, setTesto] = useState("");
+  const [invioInCorso, setInvioInCorso] = useState(false);
+  const fondoRef = useRef(null);
+
+  useEffect(() => {
+    fondoRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messaggi.length]);
+
+  const nomeAutore = (id) => players.find((p) => p.id === id)?.name || "Giocatore";
+  const avatarAutore = (id) => players.find((p) => p.id === id);
+
+  const invia = async () => {
+    const testoPulito = testo.trim();
+    if (!testoPulito) return;
+    setInvioInCorso(true);
+    await onInvia(testoPulito);
+    setTesto("");
+    setInvioInCorso(false);
+  };
+
+  const oraMessaggio = (iso) => new Date(iso).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "calc(100vh - 260px)", minHeight: 420 }}>
+      <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.chalk, marginBottom: 4 }}>
+        Chat del gruppo
+      </div>
+      <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: COLORS.chalkDim, marginBottom: 14 }}>
+        Visibile a tutti i membri del gruppo, in tempo reale.
+      </div>
+
+      <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, paddingRight: 4, marginBottom: 12 }}>
+        {messaggi.length === 0 && (
+          <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13, textAlign: "center", marginTop: 30 }}>
+            Nessun messaggio ancora. Rompi il ghiaccio! 👋
+          </div>
+        )}
+        {messaggi.map((msg) => {
+          const mio = msg.autore_id === currentPlayerId;
+          const autore = avatarAutore(msg.autore_id);
+          return (
+            <div key={msg.id} style={{ display: "flex", gap: 8, alignItems: "flex-end", flexDirection: mio ? "row-reverse" : "row" }}>
+              {autore && <MiniAvatar p={autore} size={26} />}
+              <div style={{ maxWidth: "72%" }}>
+                {!mio && (
+                  <div style={{ fontSize: 10.5, color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", marginBottom: 2, marginLeft: 4 }}>
+                    {nomeAutore(msg.autore_id)}
+                  </div>
+                )}
+                <div
+                  style={{
+                    background: mio ? COLORS.floodlight : COLORS.navy,
+                    color: mio ? COLORS.pitchDark : COLORS.chalk,
+                    borderRadius: 14,
+                    borderBottomRightRadius: mio ? 4 : 14,
+                    borderBottomLeftRadius: mio ? 14 : 4,
+                    padding: "8px 12px",
+                    fontFamily: "Inter, sans-serif",
+                    fontSize: 13.5,
+                    lineHeight: 1.4,
+                    wordBreak: "break-word",
+                  }}
+                >
+                  {msg.testo}
+                </div>
+                <div style={{ fontSize: 9.5, color: COLORS.chalkDim, marginTop: 2, textAlign: mio ? "right" : "left", marginRight: mio ? 4 : 0, marginLeft: mio ? 0 : 4 }}>
+                  {oraMessaggio(msg.creato_il)}
+                  {mio && (
+                    <span onClick={() => onElimina(msg.id)} style={{ cursor: "pointer", marginLeft: 6, textDecoration: "underline" }}>
+                      elimina
+                    </span>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+        <div ref={fondoRef} />
+      </div>
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <input
+          value={testo}
+          onChange={(e) => setTesto(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && invia()}
+          placeholder="Scrivi un messaggio…"
+          style={{
+            flex: 1, padding: "11px 14px", borderRadius: 10, border: `1px solid rgba(255,255,255,0.15)`,
+            background: COLORS.navy, color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+          }}
+        />
+        <button
+          onClick={invia}
+          disabled={!testo.trim() || invioInCorso}
+          style={{
+            padding: "0 18px", borderRadius: 10, border: "none",
+            cursor: testo.trim() && !invioInCorso ? "pointer" : "not-allowed",
+            background: testo.trim() && !invioInCorso ? COLORS.floodlight : "rgba(255,255,255,0.1)",
+            color: testo.trim() && !invioInCorso ? COLORS.pitchDark : COLORS.chalkDim,
+            fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 13.5,
+          }}
+        >
+          Invia
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) {
   const [nome, setNome] = useState(myProfile?.name || "");
   const [soprannome, setSoprannome] = useState(myProfile?.soprannome || "");
@@ -2177,6 +2569,7 @@ function Onboarding({ onRegistrationSent }) {
 
   const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
+  const [resetInviato, setResetInviato] = useState(false);
 
   const [consensoDati, setConsensoDati] = useState(false);
   const [consensoFoto, setConsensoFoto] = useState(false);
@@ -2213,6 +2606,19 @@ function Onboarding({ onRegistrationSent }) {
     // se va a buon fine, il cambiamento di sessione viene gestito dal componente App
   };
 
+  const handleResetPassword = async () => {
+    if (!loginEmail) {
+      setErrore("Inserisci prima la tua email qui sopra, poi premi di nuovo.");
+      return;
+    }
+    setErrore("");
+    setCaricamento(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(loginEmail, { redirectTo: window.location.origin });
+    setCaricamento(false);
+    if (error) setErrore(error.message);
+    else setResetInviato(true);
+  };
+
   const handleRegistrati = async () => {
     setErrore("");
     setCaricamento(true);
@@ -2228,20 +2634,25 @@ function Onboarding({ onRegistrationSent }) {
     }
     const userId = data.user?.id;
     if (userId) {
-      const initials = nome.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
-      const { error: profileError } = await supabase.from("profiles").insert({
-        auth_user_id: userId,
-        name: nome,
-        initials,
-        consenso_dati: consensoDati,
-        consenso_foto: consensoFoto,
-        maggiorenne,
-        consenso_timestamp: new Date().toISOString(),
-      });
-      if (profileError) {
-        setCaricamento(false);
-        setErrore("Registrazione creata ma il profilo non è stato salvato: " + profileError.message);
-        return;
+      // Se questo account (stesso auth id) ha già un profilo, non ne creo un altro:
+      // evita duplicati quando qualcuno riprova la registrazione con la stessa email.
+      const { data: profiloEsistente } = await supabase.from("profiles").select("id").eq("auth_user_id", userId).maybeSingle();
+      if (!profiloEsistente) {
+        const initials = nome.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
+        const { error: profileError } = await supabase.from("profiles").insert({
+          auth_user_id: userId,
+          name: nome,
+          initials,
+          consenso_dati: consensoDati,
+          consenso_foto: consensoFoto,
+          maggiorenne,
+          consenso_timestamp: new Date().toISOString(),
+        });
+        if (profileError) {
+          setCaricamento(false);
+          setErrore("Registrazione creata ma il profilo non è stato salvato: " + profileError.message);
+          return;
+        }
       }
     }
     setCaricamento(false);
@@ -2348,6 +2759,23 @@ function Onboarding({ onRegistrationSent }) {
             >
               {caricamento ? "Accesso in corso…" : "Accedi"}
             </button>
+
+            {resetInviato ? (
+              <div style={{ fontSize: 11.5, color: COLORS.green, textAlign: "center", fontFamily: "Inter, sans-serif" }}>
+                ✓ Ti abbiamo mandato un'email con il link per reimpostare la password.
+              </div>
+            ) : (
+              <button
+                onClick={handleResetPassword}
+                disabled={caricamento}
+                style={{
+                  background: "none", border: "none", color: COLORS.chalkDim, fontSize: 11.5,
+                  cursor: "pointer", fontFamily: "Inter, sans-serif", textDecoration: "underline", textAlign: "center",
+                }}
+              >
+                Password dimenticata?
+              </button>
+            )}
           </div>
         )}
 
@@ -2615,6 +3043,98 @@ function CompletaProfiloGoogle({ session, onCompletato }) {
 }
 
 /* ---------------------------------------------------------
+   IMPOSTA NUOVA PASSWORD — dopo il link di reset via email
+--------------------------------------------------------- */
+function ImpostaNuovaPassword({ onImpostata }) {
+  const [password, setPassword] = useState("");
+  const [conferma, setConferma] = useState("");
+  const [caricamento, setCaricamento] = useState(false);
+  const [errore, setErrore] = useState("");
+
+  const salva = async () => {
+    setErrore("");
+    if (password.length < 6) {
+      setErrore("La password deve avere almeno 6 caratteri.");
+      return;
+    }
+    if (password !== conferma) {
+      setErrore("Le due password non coincidono.");
+      return;
+    }
+    setCaricamento(true);
+    const { error } = await supabase.auth.updateUser({ password });
+    setCaricamento(false);
+    if (error) {
+      setErrore(error.message);
+      return;
+    }
+    onImpostata();
+  };
+
+  return (
+    <div
+      style={{
+        minHeight: "100%", background: `radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
+        display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px", fontFamily: "Inter, sans-serif",
+      }}
+    >
+      <style>{FONT_IMPORT}</style>
+      <div style={{ width: "100%", maxWidth: 420, background: COLORS.navy, borderRadius: 18, padding: 30, border: `1px solid rgba(255,255,255,0.08)` }}>
+        <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 19, color: COLORS.chalk, marginBottom: 6 }}>
+          Imposta una nuova password
+        </div>
+        <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 18 }}>
+          Scegli la password che userai per accedere da ora in poi.
+        </div>
+
+        {errore && (
+          <div style={{ background: "rgba(229,83,60,0.1)", border: `1px solid ${COLORS.red}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#ffb3a3", marginBottom: 12 }}>
+            {errore}
+          </div>
+        )}
+
+        <div style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 11.5, color: COLORS.chalkDim, marginBottom: 4 }}>Nuova password</div>
+          <input
+            type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+            style={{
+              width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
+              border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+            }}
+          />
+        </div>
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontSize: 11.5, color: COLORS.chalkDim, marginBottom: 4 }}>Ripeti la password</div>
+          <input
+            type="password" value={conferma} onChange={(e) => setConferma(e.target.value)}
+            style={{
+              width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
+              border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+            }}
+          />
+        </div>
+
+        <button
+          onClick={salva}
+          disabled={!password || !conferma || caricamento}
+          style={{
+            width: "100%", padding: "12px 0", borderRadius: 10, border: "none",
+            cursor: password && conferma && !caricamento ? "pointer" : "not-allowed",
+            background: password && conferma && !caricamento ? COLORS.floodlight : "rgba(255,255,255,0.1)",
+            color: password && conferma && !caricamento ? COLORS.pitchDark : COLORS.chalkDim,
+            fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 14,
+          }}
+        >
+          {caricamento ? "Salvataggio…" : "Salva nuova password"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------------------------------------
    SCHERMATE DI ATTESA / STATO ACCOUNT
 --------------------------------------------------------- */
 function SchermataStato({ icona, titolo, testo, onEsci }) {
@@ -2663,13 +3183,19 @@ export default function CalcettoApp() {
   const [players, setPlayers] = useState([]);
   const [matches, setMatches] = useState([]);
   const [voti, setVoti] = useState([]);
+  const [messaggi, setMessaggi] = useState([]);
+  const [ultimoVistoIl, setUltimoVistoIl] = useState(null);
   const [datiCaricati, setDatiCaricati] = useState(false);
+  const [modalitaRecuperoPassword, setModalitaRecuperoPassword] = useState(false);
 
   const currentPlayerId = myProfile?.id;
   const sonoOrganizzatore = myProfile?.ruolo_app === "organizer";
+  const sonoAllenatore = myProfile?.ruolo_app === "allenatore";
 
   useEffect(() => {
-    if (myProfile) setRole(myProfile.ruolo_app === "organizer" ? "organizer" : "player");
+    if (myProfile) {
+      setRole(myProfile.ruolo_app === "organizer" ? "organizer" : myProfile.ruolo_app === "allenatore" ? "coach" : "player");
+    }
   }, [myProfile?.ruolo_app]);
 
   const consensi = myProfile
@@ -2687,7 +3213,10 @@ export default function CalcettoApp() {
   // Ascolta lo stato di autenticazione reale (Supabase)
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, sess) => setSession(sess));
+    const { data: listener } = supabase.auth.onAuthStateChange((event, sess) => {
+      setSession(sess);
+      if (event === "PASSWORD_RECOVERY") setModalitaRecuperoPassword(true);
+    });
     return () => listener.subscription.unsubscribe();
   }, []);
 
@@ -2757,18 +3286,52 @@ export default function CalcettoApp() {
     setVoti(data || []);
   };
 
+  const caricaMessaggi = async () => {
+    const { data } = await supabase.from("messaggi").select("*").order("creato_il", { ascending: true }).limit(300);
+    setMessaggi(data || []);
+  };
+
   // Quando l'accesso è approvato, carica tutti i dati reali
   useEffect(() => {
     if (profileStatus !== "approvato") return;
     let annullato = false;
     (async () => {
-      await Promise.all([caricaGiocatori(), caricaPartite(), caricaRichiesteRegistrazione(), caricaRichiesteCancellazione(), caricaVoti()]);
-      if (!annullato) setDatiCaricati(true);
+      await Promise.all([caricaGiocatori(), caricaPartite(), caricaRichiesteRegistrazione(), caricaRichiesteCancellazione(), caricaVoti(), caricaMessaggi()]);
+      if (!annullato) {
+        setDatiCaricati(true);
+        setUltimoVistoIl(new Date().toISOString());
+      }
     })();
     return () => {
       annullato = true;
     };
   }, [profileStatus]);
+
+  // Chat in tempo reale: ascolta i nuovi messaggi appena arrivano
+  useEffect(() => {
+    if (profileStatus !== "approvato") return;
+    const canale = supabase
+      .channel("messaggi-realtime")
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "messaggi" }, (payload) => {
+        setMessaggi((prev) => (prev.some((m) => m.id === payload.new.id) ? prev : [...prev, payload.new]));
+      })
+      .on("postgres_changes", { event: "DELETE", schema: "public", table: "messaggi" }, (payload) => {
+        setMessaggi((prev) => prev.filter((m) => m.id !== payload.old.id));
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(canale);
+    };
+  }, [profileStatus]);
+
+  const inviaMessaggio = async (testo) => {
+    if (!currentPlayerId) return;
+    await supabase.from("messaggi").insert({ autore_id: currentPlayerId, testo });
+  };
+
+  const eliminaMessaggio = async (id) => {
+    await supabase.from("messaggi").delete().eq("id", id);
+  };
 
   const PALETTE_OSPITI = ["#2D6A4F", "#1B4332", "#16233D", "#E5533C", "#4C7A5C"];
 
@@ -2851,6 +3414,17 @@ export default function CalcettoApp() {
     await caricaGiocatori();
   };
 
+  const eliminaGiocatoreOspite = async (playerId) => {
+    await supabase.from("profiles").delete().eq("id", playerId);
+    await caricaGiocatori();
+  };
+
+  const unisciGiocatori = async (idDaTenere, idDaEliminare) => {
+    const { error } = await supabase.rpc("unisci_giocatori", { p_id_da_tenere: idDaTenere, p_id_da_eliminare: idDaEliminare });
+    if (error) throw error;
+    await Promise.all([caricaGiocatori(), caricaPartite(), caricaVoti()]);
+  };
+
   const salvaProfilo = async ({ nome, soprannome, ruolo, fotoFile }) => {
     if (!myProfile) return;
     let foto_url = myProfile.foto_url;
@@ -2931,6 +3505,7 @@ export default function CalcettoApp() {
   };
 
   const golTotali = useMemo(() => golTotaliPerGiocatore(matches), [matches]);
+  const autogolTotali = useMemo(() => autogolTotaliPerGiocatore(matches), [matches]);
   const bucheTotali = useMemo(() => bucheTotaliPerGiocatore(matches), [matches]);
   const votiRicevuti = useMemo(() => votiRicevutiPerGiocatore(voti), [voti]);
   const presenzeReali = useMemo(() => presenzeAssenzePerGiocatore(matches), [matches]);
@@ -2939,15 +3514,19 @@ export default function CalcettoApp() {
     () =>
       players.map((p) => {
         const buche = bucheTotali[p.id] || 0;
+        const gol = golTotali[p.id] || 0;
+        const autogol = autogolTotali[p.id] || 0;
         const votiP = votiRicevuti[p.id] || [];
         const media = mediaTroncata(votiP);
-        const overall = media != null ? Math.max(30, Math.min(99, Math.round(media * 10))) : p.overall;
+        const baseOverall = media != null ? media * 10 : p.overall;
+        // Bonus/malus separato dal voto: +0.5 per gol segnato, -1 per autogol.
+        const overall = Math.max(30, Math.min(99, Math.round(baseOverall + gol * 0.5 - autogol * 1)));
         const stat = presenzeReali[p.id] || { presenze: 0, assenze: 0 };
         const totalePartite = stat.presenze + stat.assenze;
         const affidabilita = totalePartite > 0 ? Math.round((stat.presenze / totalePartite) * 100) : p.affidabilita ?? 100;
         return {
           ...p,
-          gol: golTotali[p.id] || 0,
+          gol,
           buche,
           overall,
           mediaVoti: media,
@@ -2957,7 +3536,7 @@ export default function CalcettoApp() {
           affidabilita,
         };
       }),
-    [players, golTotali, bucheTotali, votiRicevuti, presenzeReali]
+    [players, golTotali, autogolTotali, bucheTotali, votiRicevuti, presenzeReali]
   );
 
   const giocatoriRimossi = useMemo(() => players.filter((p) => p.rimosso).map((p) => p.id), [players]);
@@ -2968,6 +3547,7 @@ export default function CalcettoApp() {
       { id: "squadra", label: "Squadra" },
       { id: "storico", label: "Storico" },
       { id: "voti", label: "Vota partita" },
+      { id: "chat", label: "Chat" },
       { id: "mieidati", label: "I miei dati" },
     ],
     organizer: [
@@ -2978,12 +3558,33 @@ export default function CalcettoApp() {
       { id: "squadra", label: "Squadra" },
       { id: "storico", label: "Storico" },
       { id: "voti", label: "Vota partita" },
+      { id: "chat", label: "Chat" },
+      { id: "mieidati", label: "I miei dati" },
+    ],
+    coach: [
+      { id: "dashboard", label: "Dashboard" },
+      { id: "formazione", label: "Crea Partita" },
+      { id: "squadra", label: "Squadra" },
+      { id: "storico", label: "Storico" },
+      { id: "voti", label: "Vota partita" },
+      { id: "chat", label: "Chat" },
       { id: "mieidati", label: "I miei dati" },
     ],
   };
 
   const [activeTab, setActiveTab] = useState("dashboard");
   const tabs = tabsByRole[role];
+
+  const messaggiNonLetti = useMemo(() => {
+    if (!ultimoVistoIl) return 0;
+    return messaggi.filter((m) => new Date(m.creato_il) > new Date(ultimoVistoIl) && m.autore_id !== currentPlayerId).length;
+  }, [messaggi, ultimoVistoIl, currentPlayerId]);
+
+  useEffect(() => {
+    if (activeTab === "chat" && messaggi.length > 0) {
+      setUltimoVistoIl(messaggi[messaggi.length - 1].creato_il);
+    }
+  }, [activeTab, messaggi]);
 
   const handleRoleChange = (r) => {
     setRole(r);
@@ -3000,6 +3601,10 @@ export default function CalcettoApp() {
 
   if (!session) {
     return <Onboarding onRegistrationSent={() => {}} />;
+  }
+
+  if (modalitaRecuperoPassword) {
+    return <ImpostaNuovaPassword onImpostata={() => setModalitaRecuperoPassword(false)} />;
   }
 
   if (profileStatus === null) {
@@ -3055,12 +3660,20 @@ export default function CalcettoApp() {
           <div style={{ fontSize: 12, color: COLORS.chalkDim }}>Gestione partite, formazioni, risultati e voti</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          {sonoOrganizzatore ? (
+          {sonoOrganizzatore || sonoAllenatore ? (
             <div style={{ textAlign: "right" }}>
               <div style={{ fontSize: 9, color: COLORS.chalkDim, marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.4 }}>
                 Demo: vista account
               </div>
-              <RoleSwitcher role={role} setRole={handleRoleChange} />
+              <RoleSwitcher
+                role={role}
+                setRole={handleRoleChange}
+                opzioni={
+                  sonoOrganizzatore
+                    ? [{ id: "player", label: "Giocatore" }, { id: "organizer", label: "Organizzatore" }]
+                    : [{ id: "player", label: "Giocatore" }, { id: "coach", label: "Allenatore" }]
+                }
+              />
             </div>
           ) : (
             <span style={chip("rgba(76,175,109,0.15)", COLORS.green)}>Giocatore</span>
@@ -3077,21 +3690,32 @@ export default function CalcettoApp() {
         </div>
       </div>
 
-      <Tabs tabs={tabs} active={activeTab} setActive={setActiveTab} />
+      <Tabs tabs={tabs} active={activeTab} setActive={setActiveTab} badges={{ chat: messaggiNonLetti }} />
 
       {activeTab === "dashboard" && (
-        <Dashboard players={playersConGol} matches={matches} currentPlayerId={currentPlayerId} />
+        <Dashboard
+          players={playersConGol}
+          matches={matches}
+          currentPlayerId={currentPlayerId}
+          voti={voti}
+          rimossi={giocatoriRimossi}
+          sonoOrganizzatore={sonoOrganizzatore || sonoAllenatore}
+          onVaiACreaPartita={() => {
+            setRole(sonoOrganizzatore ? "organizer" : "coach");
+            setActiveTab("formazione");
+          }}
+        />
       )}
       {activeTab === "squadra" && <Squadra players={playersConGol} rimossi={giocatoriRimossi} matches={matches} voti={voti} />}
       {activeTab === "storico" && <Storico players={playersConGol} matches={matches} rimossi={giocatoriRimossi} voti={voti} />}
       {activeTab === "voti" && (
         <Votazione players={playersConGol} matches={matches} currentPlayerId={currentPlayerId} onVota={inviaVoto} onSegnaGolPropri={segnaGolPropri} />
       )}
-      {role === "organizer" && activeTab === "formazione" && (
-        <Formazione players={playersConGol} matches={matches} onSalvaFormazione={salvaFormazione} onCreaPartita={creaPartita} />
+      {(role === "organizer" || role === "coach") && activeTab === "formazione" && (
+        <Formazione players={playersConGol} matches={matches} onSalvaFormazione={salvaFormazione} onCreaPartita={creaPartita} onAggiungiGiocatore={aggiungiGiocatore} />
       )}
       {role === "organizer" && activeTab === "risultato" && (
-        <Risultato players={playersConGol} matches={matches} onSalvaRisultato={salvaRisultato} onEliminaPartita={eliminaPartita} />
+        <Risultato players={playersConGol} matches={matches} onSalvaRisultato={salvaRisultato} onEliminaPartita={eliminaPartita} voti={voti} />
       )}
       {role === "organizer" && activeTab === "permessi" && (
         <Admin
@@ -3102,9 +3726,20 @@ export default function CalcettoApp() {
           onAggiungiGiocatore={aggiungiGiocatore}
           onPromuoviRuolo={promuoviRuolo}
           onModificaGiocatore={modificaGiocatore}
+          onEliminaGiocatoreOspite={eliminaGiocatoreOspite}
+          onUnisciGiocatori={unisciGiocatori}
           richiesteRegistrazione={richiesteRegistrazione}
           onApprovaRegistrazione={approvaRegistrazione}
           onRifiutaRegistrazione={rifiutaRegistrazione}
+        />
+      )}
+      {activeTab === "chat" && (
+        <ChatInterna
+          messaggi={messaggi}
+          players={playersConGol}
+          currentPlayerId={currentPlayerId}
+          onInvia={inviaMessaggio}
+          onElimina={eliminaMessaggio}
         />
       )}
       {activeTab === "mieidati" && (

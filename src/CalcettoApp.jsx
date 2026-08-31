@@ -20,7 +20,21 @@ const COLORS = {
   neri: "#111418",
 };
 
-const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');`;
+const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700;800&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&display=swap');
+.figurine-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+@media (min-width: 560px) {
+  .figurine-grid { grid-template-columns: repeat(3, 1fr); gap: 16px; }
+}
+@media (min-width: 820px) {
+  .figurine-grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (min-width: 1100px) {
+  .figurine-grid { grid-template-columns: repeat(5, 1fr); }
+}`;
 
 /* ---------------------------------------------------------
    MOCK DATA
@@ -131,6 +145,39 @@ function bucheTotaliPerGiocatore(matches) {
   return tot;
 }
 
+// Media troncata: con più di 2 voti esclude il più alto e il più basso.
+function mediaTroncata(voti) {
+  if (!voti || voti.length === 0) return null;
+  if (voti.length <= 2) return voti.reduce((a, b) => a + b, 0) / voti.length;
+  const ordinati = [...voti].sort((a, b) => a - b);
+  const centrali = ordinati.slice(1, -1);
+  return centrali.reduce((a, b) => a + b, 0) / centrali.length;
+}
+
+function votiRicevutiPerGiocatore(voti) {
+  const map = {};
+  voti.forEach((v) => {
+    (map[v.votato_id] ||= []).push(Number(v.voto));
+  });
+  return map;
+}
+
+// Presenze/assenze reali: per ogni partita storico a cui il giocatore era
+// assegnato, conta presenza se ha giocato, assenza se ha dato buca.
+function presenzeAssenzePerGiocatore(matches) {
+  const stat = {};
+  matches
+    .filter((m) => m.stato === "storico")
+    .forEach((m) => {
+      [...m.squadraBianchi, ...m.squadraNeri].forEach((id) => {
+        stat[id] ||= { presenze: 0, assenze: 0 };
+        if ((m.buche || []).includes(id)) stat[id].assenze += 1;
+        else stat[id].presenze += 1;
+      });
+    });
+  return stat;
+}
+
 /* ---------------------------------------------------------
    SQUADRA CHIP (bianchi/neri)
 --------------------------------------------------------- */
@@ -152,13 +199,13 @@ function SquadraBadge({ tipo }) {
 /* ---------------------------------------------------------
    PLAYER CARD (figurina)
 --------------------------------------------------------- */
-function PlayerCard({ p, onClick, selected }) {
+function PlayerCard({ p, onClick, selected, larghezzaFissa = true }) {
   return (
     <div
       onClick={onClick}
       style={{
         position: "relative",
-        width: 168,
+        width: larghezzaFissa ? 168 : "100%",
         borderRadius: 16,
         padding: 2,
         cursor: onClick ? "pointer" : "default",
@@ -409,19 +456,107 @@ function Dashboard({ players, matches, currentPlayerId }) {
 }
 
 /* ---------------------------------------------------------
-   SQUADRA (grid figurine)
+   SQUADRA (grid figurine) + dettaglio voti giocatore
 --------------------------------------------------------- */
-function Squadra({ players, rimossi = [] }) {
+function Squadra({ players, rimossi = [], matches, voti }) {
   const attivi = players.filter((p) => !rimossi.includes(p.id));
+  const [selezionato, setSelezionato] = useState(null);
+
   return (
     <div>
       <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 20, color: COLORS.chalk, marginBottom: 14 }}>
         Rosa · {attivi.length} giocatori
       </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
+      <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: COLORS.chalkDim, marginBottom: 14 }}>
+        Tocca una figurina per vedere lo storico voti.
+      </div>
+      <div className="figurine-grid">
         {[...attivi].sort((a, b) => b.overall - a.overall).map((p) => (
-          <PlayerCard key={p.id} p={p} />
+          <PlayerCard key={p.id} p={p} larghezzaFissa={false} onClick={() => setSelezionato(p)} />
         ))}
+      </div>
+
+      {selezionato && (
+        <DettaglioGiocatore player={selezionato} matches={matches} voti={voti} onChiudi={() => setSelezionato(null)} />
+      )}
+    </div>
+  );
+}
+
+function DettaglioGiocatore({ player, matches, voti, onChiudi }) {
+  const partite = matches
+    .filter((m) => m.stato === "storico" && [...m.squadraBianchi, ...m.squadraNeri].includes(player.id))
+    .sort((a, b) => new Date(b.data) - new Date(a.data));
+
+  const righe = partite.map((m) => {
+    const votiPartita = voti.filter((v) => v.match_id === m.id && v.votato_id === player.id).map((v) => Number(v.voto));
+    const media = votiPartita.length > 0 ? votiPartita.reduce((a, b) => a + b, 0) / votiPartita.length : null;
+    return { match: m, media, numero: votiPartita.length };
+  });
+
+  const mediaGenerale = player.mediaVoti;
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", display: "flex",
+        alignItems: "center", justifyContent: "center", padding: 20, zIndex: 50,
+      }}
+      onClick={onChiudi}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          width: "100%", maxWidth: 420, maxHeight: "85vh", overflowY: "auto",
+          background: COLORS.navy, borderRadius: 16, padding: 22, border: `1px solid rgba(255,255,255,0.1)`,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div>
+            <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 19, color: COLORS.chalk }}>
+              {player.name}{player.soprannome ? ` "${player.soprannome}"` : ""}
+            </div>
+            <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: COLORS.chalkDim }}>Storico voti ricevuti</div>
+          </div>
+          <button
+            onClick={onChiudi}
+            style={{ background: "none", border: "none", color: COLORS.chalkDim, fontSize: 20, cursor: "pointer", lineHeight: 1 }}
+          >
+            ✕
+          </button>
+        </div>
+
+        <div style={{ background: "rgba(255,200,87,0.08)", border: `1px solid rgba(255,200,87,0.25)`, borderRadius: 10, padding: 14, marginBottom: 16, textAlign: "center" }}>
+          <div style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 28, fontWeight: 600, color: COLORS.floodlight }}>
+            {mediaGenerale != null ? mediaGenerale.toFixed(1) : "—"}
+          </div>
+          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: COLORS.chalkDim }}>
+            Media generale (troncata) su {player.numeroVoti || 0} voti ricevuti
+          </div>
+        </div>
+
+        {righe.length === 0 ? (
+          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim }}>Nessuna partita votata ancora.</div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {righe.map(({ match, media, numero }) => (
+              <div
+                key={match.id}
+                style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "9px 12px",
+                }}
+              >
+                <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalk }}>
+                  {match.giorno} {match.data}
+                </span>
+                <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 14, color: media != null ? COLORS.floodlight : COLORS.chalkDim }}>
+                  {media != null ? `${media.toFixed(1)} (${numero} voti)` : "nessun voto"}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -430,10 +565,73 @@ function Squadra({ players, rimossi = [] }) {
 /* ---------------------------------------------------------
    STORICO PARTITE
 --------------------------------------------------------- */
-function Storico({ players, matches, rimossi = [] }) {
+function Storico({ players, matches, rimossi = [], voti = [] }) {
   const passate = matches
     .filter((m) => m.stato === "storico" && m.risultato)
-    .sort((a, b) => b.id - a.id);
+    .sort((a, b) => new Date(b.data) - new Date(a.data));
+
+  const [pagellaAperta, setPagellaAperta] = useState({});
+
+  const scaricaPagella = (m) => {
+    const righe = [...m.squadraBianchi, ...m.squadraNeri]
+      .filter((id) => !(m.buche || []).includes(id))
+      .map((id) => {
+        const votiGiocatore = voti.filter((v) => v.match_id === m.id && v.votato_id === id).map((v) => Number(v.voto));
+        const media = mediaTroncata(votiGiocatore);
+        return { nome: nomeById(players, id, rimossi), media };
+      })
+      .sort((a, b) => (b.media || 0) - (a.media || 0));
+
+    const W = 1080;
+    const H = 300 + righe.length * 72 + 110;
+    const canvas = document.createElement("canvas");
+    canvas.width = W;
+    canvas.height = H;
+    const ctx = canvas.getContext("2d");
+
+    const bg = ctx.createLinearGradient(0, 0, W, H);
+    bg.addColorStop(0, "#1B4332");
+    bg.addColorStop(1, "#0F2E1D");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#FFC857";
+    ctx.font = "bold 38px sans-serif";
+    ctx.fillText("📋 PAGELLA DELLA PARTITA", W / 2, 100);
+    ctx.fillStyle = "#F2F0E9";
+    ctx.font = "bold 50px sans-serif";
+    ctx.fillText(`${m.giorno.toUpperCase()} ${m.data}`, W / 2, 168);
+    ctx.font = "30px sans-serif";
+    ctx.fillStyle = "#B9C4BC";
+    ctx.fillText(`Risultato finale: ${m.risultato.bianchi} — ${m.risultato.neri}`, W / 2, 214);
+
+    let y = 300;
+    righe.forEach((r, i) => {
+      ctx.fillStyle = i % 2 === 0 ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.09)";
+      ctx.fillRect(70, y - 42, W - 140, 62);
+      ctx.textAlign = "left";
+      ctx.fillStyle = "#F2F0E9";
+      ctx.font = "34px sans-serif";
+      ctx.fillText(r.nome, 100, y);
+      ctx.textAlign = "right";
+      ctx.fillStyle = r.media != null ? "#FFC857" : "#B9C4BC";
+      ctx.font = "bold 36px sans-serif";
+      ctx.fillText(r.media != null ? r.media.toFixed(1) : "—", W - 100, y);
+      y += 72;
+    });
+
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#B9C4BC";
+    ctx.font = "24px sans-serif";
+    ctx.fillText("Calcetto Martedì & Giovedì", W / 2, H - 30);
+
+    const url = canvas.toDataURL("image/jpeg", 0.92);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `pagella-${m.giorno.toLowerCase()}-${m.data.replace(/\s/g, "-")}.jpg`;
+    a.click();
+  };
 
   return (
     <div>
@@ -517,6 +715,52 @@ function Storico({ players, matches, rimossi = [] }) {
                   ))}
                 </div>
               )}
+
+              <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", paddingTop: 10, marginTop: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                  <button
+                    onClick={() => setPagellaAperta((s) => ({ ...s, [m.id]: !s[m.id] }))}
+                    style={{
+                      background: "none", border: "none", color: COLORS.floodlight, cursor: "pointer",
+                      fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12, padding: 0,
+                    }}
+                  >
+                    {pagellaAperta[m.id] ? "▲ Nascondi pagella" : "▼ Vedi pagella"}
+                  </button>
+                  <button
+                    onClick={() => scaricaPagella(m)}
+                    style={{
+                      background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 6, cursor: "pointer",
+                      color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 11.5, padding: "4px 10px",
+                    }}
+                  >
+                    ⬇️ Scarica pagella JPG
+                  </button>
+                </div>
+
+                {pagellaAperta[m.id] && (
+                  <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                    {[...m.squadraBianchi, ...m.squadraNeri]
+                      .filter((id) => !(m.buche || []).includes(id))
+                      .map((id) => {
+                        const votiGiocatore = voti.filter((v) => v.match_id === m.id && v.votato_id === id).map((v) => Number(v.voto));
+                        const media = mediaTroncata(votiGiocatore);
+                        return { id, media, numero: votiGiocatore.length };
+                      })
+                      .sort((a, b) => (b.media || 0) - (a.media || 0))
+                      .map((r) => (
+                        <div key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.04)", borderRadius: 7, padding: "7px 10px" }}>
+                          <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: COLORS.chalk }}>
+                            {nomeById(players, r.id, rimossi)}
+                          </span>
+                          <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 13, color: r.media != null ? COLORS.floodlight : COLORS.chalkDim }}>
+                            {r.media != null ? `${r.media.toFixed(1)} (${r.numero})` : "senza voti"}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}
@@ -528,13 +772,32 @@ function Storico({ players, matches, rimossi = [] }) {
 /* ---------------------------------------------------------
    VOTAZIONE POST-PARTITA con controllo anomalie
 --------------------------------------------------------- */
-function Votazione({ players, matches, currentPlayerId, onVota }) {
+function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri }) {
   const partite = matches.filter((m) => m.stato === "storico").sort((a, b) => new Date(b.data) - new Date(a.data));
   const match = partite[0];
   const partecipantiIds = match
     ? [...match.squadraBianchi, ...match.squadraNeri].filter((id) => !match.buche.includes(id) && id !== currentPlayerId)
     : [];
   const compagni = players.filter((p) => partecipantiIds.includes(p.id));
+
+  const sonoPartecipante =
+    match && [...match.squadraBianchi, ...match.squadraNeri].includes(currentPlayerId) && !match.buche.includes(currentPlayerId);
+
+  const [miGol, setMiGol] = useState(0);
+  const [salvataggioGolInCorso, setSalvataggioGolInCorso] = useState(false);
+  const [golSalvato, setGolSalvato] = useState(false);
+
+  useEffect(() => {
+    setMiGol(match?.gol?.[currentPlayerId] || 0);
+    setGolSalvato(false);
+  }, [match?.id, currentPlayerId]);
+
+  const salvaMiGol = async () => {
+    setSalvataggioGolInCorso(true);
+    await onSegnaGolPropri(match.id, miGol);
+    setSalvataggioGolInCorso(false);
+    setGolSalvato(true);
+  };
 
   const [votiEsistenti, setVotiEsistenti] = useState([]);
   const [caricato, setCaricato] = useState(false);
@@ -606,6 +869,41 @@ function Votazione({ players, matches, currentPlayerId, onVota }) {
       <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 18 }}>
         Voti anonimi da 1 a 10. La media finale esclude il voto più alto e più basso ricevuti.
       </div>
+
+      {sonoPartecipante && (
+        <div style={{ background: COLORS.navy, borderRadius: 12, padding: "14px 16px", marginBottom: 18, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: COLORS.chalk }}>⚽ I tuoi gol in questa partita</div>
+            <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: COLORS.chalkDim, marginTop: 2 }}>L'organizzatore può comunque correggerli in "Risultato".</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <button
+              onClick={() => { setMiGol((n) => Math.max(0, n - 1)); setGolSalvato(false); }}
+              style={{ width: 30, height: 30, borderRadius: 7, border: `1px solid rgba(255,255,255,0.15)`, background: "transparent", color: COLORS.chalk, cursor: "pointer", fontSize: 16 }}
+            >
+              −
+            </button>
+            <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 20, color: COLORS.floodlight, width: 20, textAlign: "center" }}>{miGol}</span>
+            <button
+              onClick={() => { setMiGol((n) => n + 1); setGolSalvato(false); }}
+              style={{ width: 30, height: 30, borderRadius: 7, border: `1px solid rgba(255,255,255,0.15)`, background: "transparent", color: COLORS.chalk, cursor: "pointer", fontSize: 16 }}
+            >
+              +
+            </button>
+            <button
+              onClick={salvaMiGol}
+              disabled={salvataggioGolInCorso}
+              style={{
+                padding: "8px 14px", borderRadius: 8, border: "none", cursor: salvataggioGolInCorso ? "not-allowed" : "pointer",
+                fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12.5,
+                background: golSalvato ? COLORS.green : COLORS.floodlight, color: COLORS.pitchDark,
+              }}
+            >
+              {salvataggioGolInCorso ? "…" : golSalvato ? "✓ Salvato" : "Salva"}
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {compagni.length === 0 && (
@@ -2364,6 +2662,7 @@ export default function CalcettoApp() {
   const [role, setRole] = useState("player");
   const [players, setPlayers] = useState([]);
   const [matches, setMatches] = useState([]);
+  const [voti, setVoti] = useState([]);
   const [datiCaricati, setDatiCaricati] = useState(false);
 
   const currentPlayerId = myProfile?.id;
@@ -2453,12 +2752,17 @@ export default function CalcettoApp() {
     );
   };
 
+  const caricaVoti = async () => {
+    const { data } = await supabase.from("votes").select("match_id, votante_id, votato_id, voto");
+    setVoti(data || []);
+  };
+
   // Quando l'accesso è approvato, carica tutti i dati reali
   useEffect(() => {
     if (profileStatus !== "approvato") return;
     let annullato = false;
     (async () => {
-      await Promise.all([caricaGiocatori(), caricaPartite(), caricaRichiesteRegistrazione(), caricaRichiesteCancellazione()]);
+      await Promise.all([caricaGiocatori(), caricaPartite(), caricaRichiesteRegistrazione(), caricaRichiesteCancellazione(), caricaVoti()]);
       if (!annullato) setDatiCaricati(true);
     })();
     return () => {
@@ -2620,21 +2924,40 @@ export default function CalcettoApp() {
       .upsert({ match_id: matchId, votante_id: currentPlayerId, votato_id: votatoId, voto }, { onConflict: "match_id,votante_id,votato_id" });
   };
 
+  const segnaGolPropri = async (matchId, numeroGol) => {
+    const { error } = await supabase.rpc("aggiorna_gol_giocatore", { p_match_id: matchId, p_gol: numeroGol });
+    if (error) throw error;
+    await caricaPartite();
+  };
+
   const golTotali = useMemo(() => golTotaliPerGiocatore(matches), [matches]);
   const bucheTotali = useMemo(() => bucheTotaliPerGiocatore(matches), [matches]);
+  const votiRicevuti = useMemo(() => votiRicevutiPerGiocatore(voti), [voti]);
+  const presenzeReali = useMemo(() => presenzeAssenzePerGiocatore(matches), [matches]);
+
   const playersConGol = useMemo(
     () =>
       players.map((p) => {
         const buche = bucheTotali[p.id] || 0;
+        const votiP = votiRicevuti[p.id] || [];
+        const media = mediaTroncata(votiP);
+        const overall = media != null ? Math.max(30, Math.min(99, Math.round(media * 10))) : p.overall;
+        const stat = presenzeReali[p.id] || { presenze: 0, assenze: 0 };
+        const totalePartite = stat.presenze + stat.assenze;
+        const affidabilita = totalePartite > 0 ? Math.round((stat.presenze / totalePartite) * 100) : p.affidabilita ?? 100;
         return {
           ...p,
           gol: golTotali[p.id] || 0,
           buche,
-          assenze: (p.assenze || 0) + buche,
-          affidabilita: Math.max(15, (p.affidabilita || 100) - buche * 5),
+          overall,
+          mediaVoti: media,
+          numeroVoti: votiP.length,
+          presenze: stat.presenze,
+          assenze: stat.assenze,
+          affidabilita,
         };
       }),
-    [players, golTotali, bucheTotali]
+    [players, golTotali, bucheTotali, votiRicevuti, presenzeReali]
   );
 
   const giocatoriRimossi = useMemo(() => players.filter((p) => p.rimosso).map((p) => p.id), [players]);
@@ -2759,10 +3082,10 @@ export default function CalcettoApp() {
       {activeTab === "dashboard" && (
         <Dashboard players={playersConGol} matches={matches} currentPlayerId={currentPlayerId} />
       )}
-      {activeTab === "squadra" && <Squadra players={playersConGol} rimossi={giocatoriRimossi} />}
-      {activeTab === "storico" && <Storico players={playersConGol} matches={matches} rimossi={giocatoriRimossi} />}
+      {activeTab === "squadra" && <Squadra players={playersConGol} rimossi={giocatoriRimossi} matches={matches} voti={voti} />}
+      {activeTab === "storico" && <Storico players={playersConGol} matches={matches} rimossi={giocatoriRimossi} voti={voti} />}
       {activeTab === "voti" && (
-        <Votazione players={playersConGol} matches={matches} currentPlayerId={currentPlayerId} onVota={inviaVoto} />
+        <Votazione players={playersConGol} matches={matches} currentPlayerId={currentPlayerId} onVota={inviaVoto} onSegnaGolPropri={segnaGolPropri} />
       )}
       {role === "organizer" && activeTab === "formazione" && (
         <Formazione players={playersConGol} matches={matches} onSalvaFormazione={salvaFormazione} onCreaPartita={creaPartita} />

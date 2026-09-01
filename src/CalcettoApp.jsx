@@ -36,6 +36,21 @@ const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Barlo
   .figurine-grid { grid-template-columns: repeat(5, 1fr); }
 }
 
+.selezione-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+@media (min-width: 480px) {
+  .selezione-grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (min-width: 700px) {
+  .selezione-grid { grid-template-columns: repeat(5, 1fr); }
+}
+@media (min-width: 980px) {
+  .selezione-grid { grid-template-columns: repeat(6, 1fr); }
+}
+
 /* Feedback al tocco su tutti i bottoni */
 button {
   transition: filter .15s ease, transform .08s ease, box-shadow .15s ease;
@@ -1800,42 +1815,44 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
         )}
       </div>
 
-      <div className="figurine-grid" style={{ marginBottom: 22 }}>
+      <div className="selezione-grid" style={{ marginBottom: 22 }}>
         {players.map((p) => {
           const stato = squadre[p.id] || "escluso";
           const bordo =
-            stato === "bianchi" ? COLORS.bianchi : stato === "neri" ? "#0a0a0a" : "rgba(255,255,255,0.12)";
+            stato === "bianchi" ? COLORS.bianchi : stato === "neri" ? "#000000" : "rgba(255,255,255,0.12)";
           const alone =
             stato === "bianchi"
               ? `0 0 0 1px rgba(255,255,255,0.35)`
               : stato === "neri"
-              ? `0 0 0 1px rgba(255,255,255,0.25)`
+              ? `0 0 0 3px rgba(255,255,255,0.7)`
               : "none";
+          const sfondo =
+            stato === "escluso" ? "rgba(255,255,255,0.04)" : stato === "neri" ? "#1a1d22" : COLORS.navy;
           return (
             <button
               key={p.id}
               onClick={() => toggle(p.id)}
               className="figurina-hover"
               style={{
-                display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
-                padding: "10px 6px", borderRadius: 12, cursor: "pointer",
-                background: stato === "escluso" ? "rgba(255,255,255,0.04)" : COLORS.navy,
-                border: `2.5px solid ${bordo}`,
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
+                padding: "6px 3px", borderRadius: 10, cursor: "pointer",
+                background: sfondo,
+                border: `2px solid ${bordo}`,
                 boxShadow: alone,
                 opacity: stato === "escluso" ? 0.55 : 1,
               }}
             >
-              <MiniAvatar p={p} size={44} />
+              <MiniAvatar p={p} size={30} />
               <span
                 style={{
-                  fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 11.5, color: COLORS.chalk,
-                  textAlign: "center", lineHeight: 1.25, wordBreak: "break-word",
+                  fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 9.5, color: COLORS.chalk,
+                  textAlign: "center", lineHeight: 1.15, wordBreak: "break-word",
                 }}
               >
                 {p.name}
               </span>
-              <span style={{ fontSize: 9.5, color: COLORS.chalkDim, fontFamily: "Inter, sans-serif" }}>
-                {stato === "bianchi" ? "⚪ Bianchi" : stato === "neri" ? "⚫ Neri" : "Escluso"}
+              <span style={{ fontSize: 8, color: COLORS.chalkDim, fontFamily: "Inter, sans-serif" }}>
+                {stato === "bianchi" ? "⚪" : stato === "neri" ? "⚫" : "—"}
               </span>
             </button>
           );

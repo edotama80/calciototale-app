@@ -943,6 +943,14 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
   const sonoPartecipante =
     match && [...match.squadraBianchi, ...match.squadraNeri].includes(currentPlayerId) && !match.buche.includes(currentPlayerId);
 
+  // I voti si chiudono 2 giorni dopo la partita
+  const scadenzaVoti = match ? new Date(`${match.data}T${match.ora || "00:00"}:00`) : null;
+  if (scadenzaVoti) scadenzaVoti.setDate(scadenzaVoti.getDate() + 2);
+  const votazioniChiuse = scadenzaVoti ? new Date() > scadenzaVoti : false;
+  const scadenzaTesto = scadenzaVoti
+    ? scadenzaVoti.toLocaleDateString("it-IT", { day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" })
+    : "";
+
   const [miGol, setMiGol] = useState(0);
   const [salvataggioGolInCorso, setSalvataggioGolInCorso] = useState(false);
   const [golSalvato, setGolSalvato] = useState(false);
@@ -976,6 +984,7 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
   const [caricato, setCaricato] = useState(false);
   const [voti, setVoti] = useState({});
   const [inviati, setInviati] = useState({});
+  const [inModifica, setInModifica] = useState({});
   const [invioInCorso, setInvioInCorso] = useState({});
 
   const SOGLIA_SCARTO = 2;
@@ -1024,6 +1033,13 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
     await onVota(match.id, playerId, val);
     setInvioInCorso((s) => ({ ...s, [playerId]: false }));
     setInviati((s) => ({ ...s, [playerId]: true }));
+    setInModifica((s) => ({ ...s, [playerId]: false }));
+  };
+
+  const modificaVoto = (playerId) => {
+    const votoPrecedente = votiEsistenti.find((v) => v.votante_id === currentPlayerId && v.votato_id === playerId);
+    if (votoPrecedente) setVoto(playerId, Number(votoPrecedente.voto));
+    setInModifica((s) => ({ ...s, [playerId]: true }));
   };
 
   if (!caricato) {
@@ -1041,7 +1057,16 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
       </div>
       <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 18 }}>
         Voti anonimi da 1 a 10. La media finale esclude il voto più alto e più basso ricevuti.
+        {!votazioniChiuse && scadenzaTesto && ` Puoi votare o modificare fino al ${scadenzaTesto}.`}
       </div>
+
+      {votazioniChiuse && (
+        <div style={{ background: "rgba(255,200,87,0.08)", border: `1px solid rgba(255,200,87,0.3)`, borderRadius: 10, padding: 12, marginBottom: 18 }}>
+          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: COLORS.chalk }}>
+            ⏳ Le votazioni per questa partita si sono chiuse il {scadenzaTesto} (2 giorni dopo la partita). Non è più possibile votare né modificare i voti dati.
+          </div>
+        </div>
+      )}
 
       {sonoPartecipante && (
         <div style={{ background: COLORS.navy, borderRadius: 12, padding: "14px 16px", marginBottom: 18, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
@@ -1084,7 +1109,9 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
             🏅 Chi è stato l'MVP della partita?
           </div>
           <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: COLORS.chalkDim, marginBottom: 12 }}>
-            Un solo voto, non puoi votare te stesso. Vince chi riceve più voti dai compagni.
+            {votazioniChiuse
+              ? "Le votazioni per l'MVP di questa partita sono chiuse."
+              : "Un solo voto, non puoi votare te stesso. Vince chi riceve più voti dai compagni."}
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {compagni.map((p) => {
@@ -1093,12 +1120,13 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
                 <button
                   key={p.id}
                   onClick={() => votaMvp(p.id)}
-                  disabled={mvpInCorso}
+                  disabled={mvpInCorso || votazioniChiuse}
                   style={{
                     display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 6px", borderRadius: 999,
                     border: `1px solid ${selezionato ? COLORS.floodlight : "rgba(255,255,255,0.15)"}`,
                     background: selezionato ? "rgba(255,200,87,0.15)" : "transparent",
-                    cursor: mvpInCorso ? "not-allowed" : "pointer",
+                    cursor: mvpInCorso || votazioniChiuse ? "not-allowed" : "pointer",
+                    opacity: votazioniChiuse && !selezionato ? 0.5 : 1,
                   }}
                 >
                   <MiniAvatar p={p} size={24} />
@@ -1121,13 +1149,15 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
           const val = voti[p.id] ?? 6;
           const anomalia = scartoAnomalo(p.id, val);
           const done = inviati[p.id];
+          const modificando = inModifica[p.id];
+          const mostraSlider = (!done || modificando) && !votazioniChiuse;
           const inCorso = invioInCorso[p.id];
           return (
             <div
               key={p.id}
               style={{
                 background: COLORS.navy,
-                border: `1px solid ${anomalia && !done ? COLORS.red : "rgba(255,255,255,0.08)"}`,
+                border: `1px solid ${anomalia && mostraSlider ? COLORS.red : "rgba(255,255,255,0.08)"}`,
                 borderRadius: 12,
                 padding: "14px 16px",
               }}
@@ -1139,8 +1169,24 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
                     {p.name}
                   </div>
                 </div>
-                {done ? (
-                  <span style={chip("rgba(76,175,109,0.15)", COLORS.green)}>Voto inviato ✓</span>
+                {done && !modificando ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={chip("rgba(76,175,109,0.15)", COLORS.green)}>Voto inviato ✓</span>
+                    {!votazioniChiuse && (
+                      <button
+                        onClick={() => modificaVoto(p.id)}
+                        style={{
+                          background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 7,
+                          color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 11,
+                          padding: "4px 9px", cursor: "pointer",
+                        }}
+                      >
+                        ✏️ Modifica
+                      </button>
+                    )}
+                  </div>
+                ) : !done && votazioniChiuse ? (
+                  <span style={chip("rgba(255,255,255,0.08)", COLORS.chalkDim)}>⏳ Tempo scaduto</span>
                 ) : (
                   <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 20, fontWeight: 600, color: COLORS.floodlight }}>
                     {val.toFixed(1)}
@@ -1148,7 +1194,7 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
                 )}
               </div>
 
-              {!done && (
+              {mostraSlider && (
                 <>
                   <input
                     type="range"
@@ -1178,24 +1224,37 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
                       ⚠️ Questo voto si discosta di {Math.abs(anomalia.diff).toFixed(1)} punti dalla media degli altri voti ricevuti finora ({anomalia.consenso.toFixed(1)}). Conferma solo se motivato.
                     </div>
                   )}
-                  <button
-                    onClick={() => invia(p.id, val)}
-                    disabled={inCorso}
-                    style={{
-                      marginTop: 10,
-                      padding: "7px 14px",
-                      borderRadius: 7,
-                      border: "none",
-                      cursor: inCorso ? "not-allowed" : "pointer",
-                      fontFamily: "Inter, sans-serif",
-                      fontWeight: 700,
-                      fontSize: 12.5,
-                      background: anomalia ? "rgba(255,255,255,0.1)" : COLORS.floodlight,
-                      color: anomalia ? COLORS.chalk : COLORS.pitchDark,
-                    }}
-                  >
-                    {inCorso ? "Invio…" : anomalia ? "Conferma comunque" : "Invia voto"}
-                  </button>
+                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    <button
+                      onClick={() => invia(p.id, val)}
+                      disabled={inCorso}
+                      style={{
+                        padding: "7px 14px",
+                        borderRadius: 7,
+                        border: "none",
+                        cursor: inCorso ? "not-allowed" : "pointer",
+                        fontFamily: "Inter, sans-serif",
+                        fontWeight: 700,
+                        fontSize: 12.5,
+                        background: anomalia ? "rgba(255,255,255,0.1)" : COLORS.floodlight,
+                        color: anomalia ? COLORS.chalk : COLORS.pitchDark,
+                      }}
+                    >
+                      {inCorso ? "Invio…" : anomalia ? "Conferma comunque" : modificando ? "Salva modifica" : "Invia voto"}
+                    </button>
+                    {modificando && (
+                      <button
+                        onClick={() => setInModifica((s) => ({ ...s, [p.id]: false }))}
+                        style={{
+                          padding: "7px 14px", borderRadius: 7, border: `1px solid rgba(255,255,255,0.15)`,
+                          background: "transparent", color: COLORS.chalkDim, cursor: "pointer",
+                          fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12.5,
+                        }}
+                      >
+                        Annulla
+                      </button>
+                    )}
+                  </div>
                 </>
               )}
             </div>
@@ -1300,7 +1359,7 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
         style={{
           width: "100%", maxWidth: 340, padding: "9px 12px", borderRadius: 8, marginBottom: 20,
           border: `1px solid rgba(255,255,255,0.15)`, background: COLORS.navy,
-          color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+          color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
         }}
       >
         {partiteGestibili.map((m) => (
@@ -1514,6 +1573,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
   const [squadre, setSquadre] = useState({});
   const [salvataggioInCorso, setSalvataggioInCorso] = useState(false);
   const [salvato, setSalvato] = useState(false);
+  const [ricercaGiocatore, setRicercaGiocatore] = useState("");
 
   const [nuovoGiorno, setNuovoGiorno] = useState("Giovedì");
   const [nuovaData, setNuovaData] = useState("");
@@ -1687,7 +1747,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
                 style={{
                   width: "100%", padding: "9px 12px", borderRadius: 8,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               >
                 <option style={{ background: COLORS.navy }}>Martedì</option>
@@ -1701,7 +1761,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
                 style={{
                   width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               />
             </div>
@@ -1712,7 +1772,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
                 style={{
                   width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               />
             </div>
@@ -1723,7 +1783,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
                 style={{
                   width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               />
             </div>
@@ -1776,7 +1836,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
                 style={{
                   flex: 1, minWidth: 150, padding: "8px 10px", borderRadius: 7,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               />
               <select
@@ -1784,7 +1844,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
                 onChange={(e) => setRuoloOspite(e.target.value)}
                 style={{
                   padding: "8px 10px", borderRadius: 7, border: `1px solid rgba(255,255,255,0.15)`,
-                  background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                  background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               >
                 {ruoliOspite.map((r) => (
@@ -1815,8 +1875,34 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
         )}
       </div>
 
+      <div style={{ position: "relative", marginBottom: 14, maxWidth: 320 }}>
+        <input
+          value={ricercaGiocatore}
+          onChange={(e) => setRicercaGiocatore(e.target.value)}
+          placeholder="🔍 Cerca giocatore…"
+          style={{
+            width: "100%", boxSizing: "border-box", padding: "9px 34px 9px 12px", borderRadius: 9,
+            border: `1px solid rgba(255,255,255,0.15)`, background: COLORS.navy,
+            color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
+          }}
+        />
+        {ricercaGiocatore && (
+          <button
+            onClick={() => setRicercaGiocatore("")}
+            style={{
+              position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+              background: "none", border: "none", color: COLORS.chalkDim, fontSize: 14, cursor: "pointer", padding: 4,
+            }}
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
       <div className="selezione-grid" style={{ marginBottom: 22 }}>
-        {players.map((p) => {
+        {players
+          .filter((p) => p.name.toLowerCase().includes(ricercaGiocatore.trim().toLowerCase()))
+          .map((p) => {
           const stato = squadre[p.id] || "escluso";
           const bordo =
             stato === "bianchi" ? COLORS.bianchi : stato === "neri" ? "#000000" : "rgba(255,255,255,0.12)";
@@ -1858,6 +1944,11 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
           );
         })}
       </div>
+      {ricercaGiocatore && players.filter((p) => p.name.toLowerCase().includes(ricercaGiocatore.trim().toLowerCase())).length === 0 && (
+        <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 12.5, marginTop: -14, marginBottom: 22 }}>
+          Nessun giocatore trovato per "{ricercaGiocatore}".
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
         <canvas
@@ -2001,7 +2092,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
                       style={{
                         width: "100%", padding: "8px 10px", borderRadius: 7,
                         border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                        color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 12.5,
+                        color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                       }}
                     >
                       <option value="" style={{ background: COLORS.navy }}>— Crea come nuovo giocatore —</option>
@@ -2090,7 +2181,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
               style={{
                 width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             />
           </div>
@@ -2102,7 +2193,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
               style={{
                 width: "100%", padding: "9px 12px", borderRadius: 8,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             >
               {ruoliCampo.map((r) => (
@@ -2149,7 +2240,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
               style={{
                 width: "100%", padding: "9px 12px", borderRadius: 8,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             >
               <option value="" style={{ background: COLORS.navy }}>— Scegli —</option>
@@ -2166,7 +2257,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
               style={{
                 width: "100%", padding: "9px 12px", borderRadius: 8,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             >
               <option value="" style={{ background: COLORS.navy }}>— Scegli —</option>
@@ -2309,7 +2400,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
                   placeholder="Nome"
                   style={{
                     flex: 1, minWidth: 140, padding: "7px 10px", borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`,
-                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 12.5,
+                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                   }}
                 />
                 <input
@@ -2318,7 +2409,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
                   placeholder="Soprannome"
                   style={{
                     flex: 1, minWidth: 120, padding: "7px 10px", borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`,
-                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 12.5,
+                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                   }}
                 />
                 <select
@@ -2326,7 +2417,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
                   onChange={(e) => setBozzeModifica((b) => ({ ...b, [p.id]: { ...bozza, ruolo_campo: e.target.value } }))}
                   style={{
                     padding: "7px 10px", borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`,
-                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 12.5,
+                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                   }}
                 >
                   {ruoliCampo.map((r) => (
@@ -2451,7 +2542,7 @@ function ChatInterna({ messaggi, players, currentPlayerId, onInvia, onElimina })
           placeholder="Scrivi un messaggio…"
           style={{
             flex: 1, padding: "11px 14px", borderRadius: 10, border: `1px solid rgba(255,255,255,0.15)`,
-            background: COLORS.navy, color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+            background: COLORS.navy, color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
           }}
         />
         <button
@@ -2570,7 +2661,7 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
               style={{
                 width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 7,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             />
           </div>
@@ -2581,7 +2672,7 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
               style={{
                 width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 7,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             />
           </div>
@@ -2592,7 +2683,7 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
               style={{
                 width: "100%", padding: "8px 10px", borderRadius: 7,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             >
               {ruoliCampo.map((r) => (
@@ -2624,7 +2715,7 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
             style={{
               flex: 1, minWidth: 180, boxSizing: "border-box", padding: "8px 10px", borderRadius: 7,
               border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
             }}
           />
           <button
@@ -2882,7 +2973,7 @@ function Onboarding({ onRegistrationSent }) {
                 style={{
                   width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               />
             </div>
@@ -2893,7 +2984,7 @@ function Onboarding({ onRegistrationSent }) {
                 style={{
                   width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               />
             </div>
@@ -2959,7 +3050,7 @@ function Onboarding({ onRegistrationSent }) {
                   style={{
                     width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
                     border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                    color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                    color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                   }}
                 />
               </div>
@@ -3125,7 +3216,7 @@ function ImpostaNuovaPassword({ onImpostata }) {
             style={{
               width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
               border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
             }}
           />
         </div>
@@ -3136,7 +3227,7 @@ function ImpostaNuovaPassword({ onImpostata }) {
             style={{
               width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
               border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
             }}
           />
         </div>
@@ -3595,8 +3686,6 @@ export default function CalcettoApp() {
       { id: "squadra", label: "Squadra" },
       { id: "storico", label: "Storico" },
       { id: "voti", label: "Vota partita" },
-      { id: "chat", label: "Chat" },
-      { id: "mieidati", label: "I miei dati" },
     ],
     organizer: [
       { id: "dashboard", label: "Dashboard" },
@@ -3606,8 +3695,6 @@ export default function CalcettoApp() {
       { id: "squadra", label: "Squadra" },
       { id: "storico", label: "Storico" },
       { id: "voti", label: "Vota partita" },
-      { id: "chat", label: "Chat" },
-      { id: "mieidati", label: "I miei dati" },
     ],
     coach: [
       { id: "dashboard", label: "Dashboard" },
@@ -3615,8 +3702,6 @@ export default function CalcettoApp() {
       { id: "squadra", label: "Squadra" },
       { id: "storico", label: "Storico" },
       { id: "voti", label: "Vota partita" },
-      { id: "chat", label: "Chat" },
-      { id: "mieidati", label: "I miei dati" },
     ],
   };
 
@@ -3745,6 +3830,23 @@ export default function CalcettoApp() {
               </span>
             )}
           </button>
+
+          <div style={{ width: 1, height: 22, background: "rgba(255,255,255,0.12)", margin: "0 4px" }} />
+
+          <button
+            onClick={() => setActiveTab("mieidati")}
+            title="I miei dati"
+            aria-label="I miei dati"
+            style={{
+              background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 8,
+              color: activeTab === "mieidati" ? COLORS.floodlight : COLORS.chalkDim, fontSize: 15, width: 32, height: 32,
+              display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+            }}
+          >
+            🪪
+          </button>
+
+          <div style={{ width: 1, height: 22, background: "rgba(255,255,255,0.12)", margin: "0 4px" }} />
 
           {sonoOrganizzatore || sonoAllenatore ? (
             <RoleSwitcher

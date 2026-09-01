@@ -244,6 +244,21 @@ function mediaTroncata(voti) {
   return centrali.reduce((a, b) => a + b, 0) / centrali.length;
 }
 
+// Calcola l'MVP di una partita dai voti dei giocatori: chi ha più voti vince.
+// In caso di parità in cima, non assegna nessuno (evita scelte arbitrarie).
+function calcolaMvp(matchId, votiMvp) {
+  const conteggio = {};
+  votiMvp
+    .filter((v) => v.match_id === matchId)
+    .forEach((v) => {
+      conteggio[v.votato_id] = (conteggio[v.votato_id] || 0) + 1;
+    });
+  const voci = Object.entries(conteggio).sort((a, b) => b[1] - a[1]);
+  if (voci.length === 0) return null;
+  if (voci.length > 1 && voci[0][1] === voci[1][1]) return { id: null, pari: true, voti: voci[0][1] };
+  return { id: voci[0][0], voti: voci[0][1] };
+}
+
 function votiRicevutiPerGiocatore(voti) {
   const map = {};
   voti.forEach((v) => {
@@ -690,7 +705,7 @@ function DettaglioGiocatore({ player, matches, voti, onChiudi }) {
 /* ---------------------------------------------------------
    STORICO PARTITE
 --------------------------------------------------------- */
-function Storico({ players, matches, rimossi = [], voti = [] }) {
+function Storico({ players, matches, rimossi = [], voti = [], votiMvp = [] }) {
   const passate = matches
     .filter((m) => m.stato === "storico" && m.risultato)
     .sort((a, b) => new Date(b.data) - new Date(a.data));
@@ -773,14 +788,18 @@ function Storico({ players, matches, rimossi = [], voti = [] }) {
             .filter(([, n]) => n > 0)
             .sort((a, b) => b[1] - a[1]);
           const autogol = Object.entries(m.autogol || {}).filter(([, n]) => n > 0);
+          const mvpPartita = calcolaMvp(m.id, votiMvp);
           return (
             <div key={m.id} style={{ background: COLORS.navy, borderRadius: 12, padding: "16px 18px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
                 <div>
                   <div style={chip("rgba(255,255,255,0.08)", COLORS.chalkDim)}>{m.giorno.toUpperCase()} · {formattaDataIT(m.data)}</div>
                 </div>
-                {m.mvp && (
-                  <span style={chip("rgba(255,200,87,0.15)", COLORS.floodlight)}>🏅 MVP: {nomeById(players, m.mvp, rimossi)}</span>
+                {mvpPartita?.id && (
+                  <span style={chip("rgba(255,200,87,0.15)", COLORS.floodlight)}>🏅 MVP: {nomeById(players, mvpPartita.id, rimossi)} ({mvpPartita.voti} voti)</span>
+                )}
+                {mvpPartita?.pari && (
+                  <span style={chip("rgba(255,255,255,0.08)", COLORS.chalkDim)}>🏅 MVP in parità</span>
                 )}
               </div>
 
@@ -898,7 +917,7 @@ function Storico({ players, matches, rimossi = [], voti = [] }) {
 /* ---------------------------------------------------------
    VOTAZIONE POST-PARTITA con controllo anomalie
 --------------------------------------------------------- */
-function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri }) {
+function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri, votiMvp = [], onVotaMvp }) {
   const partite = matches.filter((m) => m.stato === "storico").sort((a, b) => new Date(b.data) - new Date(a.data));
   const match = partite[0];
   const partecipantiIds = match
@@ -913,9 +932,15 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
   const [salvataggioGolInCorso, setSalvataggioGolInCorso] = useState(false);
   const [golSalvato, setGolSalvato] = useState(false);
 
+  const [mvpScelto, setMvpScelto] = useState("");
+  const [mvpInCorso, setMvpInCorso] = useState(false);
+  const mioVotoMvp = votiMvp.find((v) => v.match_id === match?.id && v.votante_id === currentPlayerId);
+
   useEffect(() => {
     setMiGol(match?.gol?.[currentPlayerId] || 0);
     setGolSalvato(false);
+    setMvpScelto(mioVotoMvp?.votato_id || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [match?.id, currentPlayerId]);
 
   const salvaMiGol = async () => {
@@ -923,6 +948,13 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
     await onSegnaGolPropri(match.id, miGol);
     setSalvataggioGolInCorso(false);
     setGolSalvato(true);
+  };
+
+  const votaMvp = async (votatoId) => {
+    setMvpScelto(votatoId);
+    setMvpInCorso(true);
+    await onVotaMvp(match.id, votatoId);
+    setMvpInCorso(false);
   };
 
   const [votiEsistenti, setVotiEsistenti] = useState([]);
@@ -1027,6 +1059,41 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
             >
               {salvataggioGolInCorso ? "…" : golSalvato ? "✓ Salvato" : "Salva"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {sonoPartecipante && compagni.length > 0 && (
+        <div style={{ background: COLORS.navy, borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
+          <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: COLORS.chalk, marginBottom: 2 }}>
+            🏅 Chi è stato l'MVP della partita?
+          </div>
+          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: COLORS.chalkDim, marginBottom: 12 }}>
+            Un solo voto, non puoi votare te stesso. Vince chi riceve più voti dai compagni.
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {compagni.map((p) => {
+              const selezionato = mvpScelto === p.id;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => votaMvp(p.id)}
+                  disabled={mvpInCorso}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 6px", borderRadius: 999,
+                    border: `1px solid ${selezionato ? COLORS.floodlight : "rgba(255,255,255,0.15)"}`,
+                    background: selezionato ? "rgba(255,200,87,0.15)" : "transparent",
+                    cursor: mvpInCorso ? "not-allowed" : "pointer",
+                  }}
+                >
+                  <MiniAvatar p={p} size={24} />
+                  <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12.5, color: selezionato ? COLORS.floodlight : COLORS.chalk }}>
+                    {p.name}
+                  </span>
+                  {selezionato && <span style={{ color: COLORS.floodlight, fontSize: 12 }}>✓</span>}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
@@ -1136,7 +1203,6 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
 
   const [gol, setGol] = useState({});
   const [autogol, setAutogol] = useState({});
-  const [mvp, setMvp] = useState(null);
   const [buche, setBuche] = useState([]);
   const [salvataggioInCorso, setSalvataggioInCorso] = useState(false);
   const [salvato, setSalvato] = useState(false);
@@ -1153,7 +1219,6 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
     if (!match) return;
     setGol(match.gol || {});
     setAutogol(match.autogol || {});
-    setMvp(match.mvp || null);
     setBuche(match.buche || []);
     setSalvato(false);
     setConfermaEliminazione(false);
@@ -1170,7 +1235,6 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
     setBuche((b) => (b.includes(id) ? b.filter((x) => x !== id) : [...b, id]));
     setGol((g) => ({ ...g, [id]: 0 }));
     setAutogol((a) => ({ ...a, [id]: 0 }));
-    if (mvp === id) setMvp(null);
   };
 
   const totaleGolInseriti = Object.values(gol).reduce((a, b) => a + b, 0);
@@ -1187,7 +1251,7 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
 
   const salva = async () => {
     setSalvataggioInCorso(true);
-    await onSalvaRisultato(match.id, { bianchi, neri, gol, autogol, mvp, buche });
+    await onSalvaRisultato(match.id, { bianchi, neri, gol, autogol, buche });
     setSalvataggioInCorso(false);
     setSalvato(true);
   };
@@ -1273,18 +1337,6 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
                 <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: COLORS.chalk, textDecoration: haDatoBuca ? "line-through" : "none" }}>
                   {p.name}
                 </span>
-                {!haDatoBuca && (
-                  <button
-                    onClick={() => setMvp(p.id)}
-                    title="Segna come MVP"
-                    style={{
-                      border: "none", background: "none", cursor: "pointer", fontSize: 14,
-                      filter: mvp === p.id ? "none" : "grayscale(1) opacity(0.4)",
-                    }}
-                  >
-                    🏅
-                  </button>
-                )}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <button
@@ -3259,6 +3311,7 @@ export default function CalcettoApp() {
   const [players, setPlayers] = useState([]);
   const [matches, setMatches] = useState([]);
   const [voti, setVoti] = useState([]);
+  const [votiMvp, setVotiMvp] = useState([]);
   const [messaggi, setMessaggi] = useState([]);
   const [ultimoVistoIl, setUltimoVistoIl] = useState(null);
   const [datiCaricati, setDatiCaricati] = useState(false);
@@ -3362,6 +3415,11 @@ export default function CalcettoApp() {
     setVoti(data || []);
   };
 
+  const caricaVotiMvp = async () => {
+    const { data } = await supabase.from("voti_mvp").select("match_id, votante_id, votato_id");
+    setVotiMvp(data || []);
+  };
+
   const caricaMessaggi = async () => {
     const { data } = await supabase.from("messaggi").select("*").order("creato_il", { ascending: true }).limit(300);
     setMessaggi(data || []);
@@ -3372,7 +3430,7 @@ export default function CalcettoApp() {
     if (profileStatus !== "approvato") return;
     let annullato = false;
     (async () => {
-      await Promise.all([caricaGiocatori(), caricaPartite(), caricaRichiesteRegistrazione(), caricaRichiesteCancellazione(), caricaVoti(), caricaMessaggi()]);
+      await Promise.all([caricaGiocatori(), caricaPartite(), caricaRichiesteRegistrazione(), caricaRichiesteCancellazione(), caricaVoti(), caricaVotiMvp(), caricaMessaggi()]);
       if (!annullato) {
         setDatiCaricati(true);
         setUltimoVistoIl(new Date().toISOString());
@@ -3546,7 +3604,7 @@ export default function CalcettoApp() {
     await caricaPartite();
   };
 
-  const salvaRisultato = async (matchId, { bianchi, neri, gol, autogol, mvp, buche }) => {
+  const salvaRisultato = async (matchId, { bianchi, neri, gol, autogol, buche }) => {
     await supabase
       .from("matches")
       .update({
@@ -3554,7 +3612,6 @@ export default function CalcettoApp() {
         risultato_neri: neri,
         gol,
         autogol,
-        mvp: mvp || null,
         buche,
         stato: "storico",
       })
@@ -3574,6 +3631,14 @@ export default function CalcettoApp() {
       .upsert({ match_id: matchId, votante_id: currentPlayerId, votato_id: votatoId, voto }, { onConflict: "match_id,votante_id,votato_id" });
   };
 
+  const inviaVotoMvp = async (matchId, votatoId) => {
+    if (!currentPlayerId) return;
+    await supabase
+      .from("voti_mvp")
+      .upsert({ match_id: matchId, votante_id: currentPlayerId, votato_id: votatoId }, { onConflict: "match_id,votante_id" });
+    await caricaVotiMvp();
+  };
+
   const segnaGolPropri = async (matchId, numeroGol) => {
     const { error } = await supabase.rpc("aggiorna_gol_giocatore", { p_match_id: matchId, p_gol: numeroGol });
     if (error) throw error;
@@ -3585,6 +3650,16 @@ export default function CalcettoApp() {
   const bucheTotali = useMemo(() => bucheTotaliPerGiocatore(matches), [matches]);
   const votiRicevuti = useMemo(() => votiRicevutiPerGiocatore(voti), [voti]);
   const presenzeReali = useMemo(() => presenzeAssenzePerGiocatore(matches), [matches]);
+  const mvpTotali = useMemo(() => {
+    const tot = {};
+    matches
+      .filter((m) => m.stato === "storico")
+      .forEach((m) => {
+        const vincitore = calcolaMvp(m.id, votiMvp);
+        if (vincitore?.id) tot[vincitore.id] = (tot[vincitore.id] || 0) + 1;
+      });
+    return tot;
+  }, [matches, votiMvp]);
 
   const playersConGol = useMemo(
     () =>
@@ -3610,9 +3685,10 @@ export default function CalcettoApp() {
           presenze: stat.presenze,
           assenze: stat.assenze,
           affidabilita,
+          mvp: mvpTotali[p.id] || 0,
         };
       }),
-    [players, golTotali, autogolTotali, bucheTotali, votiRicevuti, presenzeReali]
+    [players, golTotali, autogolTotali, bucheTotali, votiRicevuti, presenzeReali, mvpTotali]
   );
 
   const giocatoriRimossi = useMemo(() => players.filter((p) => p.rimosso).map((p) => p.id), [players]);
@@ -3649,6 +3725,13 @@ export default function CalcettoApp() {
   };
 
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [confermaEsci, setConfermaEsci] = useState(false);
+
+  useEffect(() => {
+    if (!confermaEsci) return;
+    const t = setTimeout(() => setConfermaEsci(false), 3000);
+    return () => clearTimeout(t);
+  }, [confermaEsci]);
   const tabs = tabsByRole[role];
 
   const messaggiNonLetti = useMemo(() => {
@@ -3735,7 +3818,31 @@ export default function CalcettoApp() {
           </div>
           <div style={{ fontSize: 12, color: COLORS.chalkDim }}>Gestione partite, formazioni, risultati e voti</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button
+            onClick={() => setActiveTab("chat")}
+            title="Chat"
+            aria-label="Chat"
+            style={{
+              position: "relative", background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 8,
+              color: activeTab === "chat" ? COLORS.floodlight : COLORS.chalkDim, fontSize: 15, width: 32, height: 32,
+              display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+            }}
+          >
+            💬
+            {messaggiNonLetti > 0 && (
+              <span
+                style={{
+                  position: "absolute", top: -4, right: -4, background: COLORS.red, color: COLORS.chalk,
+                  borderRadius: 999, fontSize: 9.5, fontFamily: "Inter, sans-serif", fontWeight: 700,
+                  minWidth: 15, height: 15, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px",
+                }}
+              >
+                {messaggiNonLetti > 9 ? "9+" : messaggiNonLetti}
+              </span>
+            )}
+          </button>
+
           {sonoOrganizzatore || sonoAllenatore ? (
             <RoleSwitcher
               role={role}
@@ -3749,17 +3856,32 @@ export default function CalcettoApp() {
           ) : (
             <span style={chip("rgba(76,175,109,0.15)", COLORS.green)}>Giocatore</span>
           )}
+
+          <div style={{ width: 1, height: 22, background: "rgba(255,255,255,0.12)", margin: "0 4px" }} />
+
           <button
-            onClick={() => supabase.auth.signOut()}
-            title="Esci"
+            onClick={() => {
+              if (confermaEsci) {
+                supabase.auth.signOut();
+              } else {
+                setConfermaEsci(true);
+              }
+            }}
+            title={confermaEsci ? "Tocca di nuovo per confermare" : "Esci"}
             aria-label="Esci"
             style={{
-              background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 8,
-              color: COLORS.chalkDim, fontSize: 15, width: 32, height: 32, display: "flex",
+              background: confermaEsci ? COLORS.red : "none",
+              border: `1px solid ${confermaEsci ? COLORS.red : "rgba(255,255,255,0.15)"}`,
+              borderRadius: 8,
+              color: confermaEsci ? COLORS.chalk : COLORS.chalkDim,
+              fontSize: confermaEsci ? 10.5 : 15,
+              fontFamily: "Inter, sans-serif", fontWeight: 700,
+              width: confermaEsci ? 62 : 32, height: 32, display: "flex",
               alignItems: "center", justifyContent: "center", cursor: "pointer",
+              transition: "width .15s ease",
             }}
           >
-            🚪
+            {confermaEsci ? "Conferma" : "🚪"}
           </button>
         </div>
       </div>
@@ -3782,9 +3904,9 @@ export default function CalcettoApp() {
         />
       )}
       {activeTab === "squadra" && <Squadra players={playersConGol} rimossi={giocatoriRimossi} matches={matches} voti={voti} />}
-      {activeTab === "storico" && <Storico players={playersConGol} matches={matches} rimossi={giocatoriRimossi} voti={voti} />}
+      {activeTab === "storico" && <Storico players={playersConGol} matches={matches} rimossi={giocatoriRimossi} voti={voti} votiMvp={votiMvp} />}
       {activeTab === "voti" && (
-        <Votazione players={playersConGol} matches={matches} currentPlayerId={currentPlayerId} onVota={inviaVoto} onSegnaGolPropri={segnaGolPropri} />
+        <Votazione players={playersConGol} matches={matches} currentPlayerId={currentPlayerId} onVota={inviaVoto} onSegnaGolPropri={segnaGolPropri} votiMvp={votiMvp} onVotaMvp={inviaVotoMvp} />
       )}
       {(role === "organizer" || role === "coach") && activeTab === "formazione" && (
         <Formazione players={playersConGol} matches={matches} onSalvaFormazione={salvaFormazione} onCreaPartita={creaPartita} onAggiungiGiocatore={aggiungiGiocatore} />

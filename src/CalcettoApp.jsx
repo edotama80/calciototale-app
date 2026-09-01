@@ -34,7 +34,78 @@ const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Barlo
 }
 @media (min-width: 1100px) {
   .figurine-grid { grid-template-columns: repeat(5, 1fr); }
+}
+
+/* Feedback al tocco su tutti i bottoni */
+button {
+  transition: filter .15s ease, transform .08s ease, box-shadow .15s ease;
+}
+button:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* Focus da tastiera, coerente col tema */
+button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {
+  outline: 2px solid #FFC857;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Scrollbar sottile e coerente col tema, dove supportata */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent; }
+
+/* Figurine: piccolo sollevamento al passaggio del mouse */
+.figurina-hover {
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.figurina-hover:hover {
+  transform: translateY(-4px);
+}
+
+/* Barra delle tab scorrevole invece che a capo */
+.tabs-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap !important;
+  scrollbar-width: none;
+}
+.tabs-scroll::-webkit-scrollbar { display: none; }
+.tabs-scroll button { white-space: nowrap; flex-shrink: 0; }
+
+/* Dissolvenza leggera al cambio contenuto */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fadeInUp .22s ease; }
+
+/* Spinner di caricamento */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.15);
+  border-top-color: #FFC857;
+  animation: spin .8s linear infinite;
 }`;
+
+function Spinner({ testo }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: "50px 0" }}>
+      <div className="spinner" />
+      {testo && <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 12.5 }}>{testo}</div>}
+    </div>
+  );
+}
 
 /* ---------------------------------------------------------
    MOCK DATA
@@ -236,6 +307,7 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true }) {
   return (
     <div
       onClick={onClick}
+      className="figurina-hover"
       style={{
         position: "relative",
         width: larghezzaFissa ? 168 : "100%",
@@ -246,7 +318,6 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true }) {
           ? `linear-gradient(160deg, ${COLORS.floodlight}, #7a5b12)`
           : `linear-gradient(160deg, #3a4a5c, #16233D)`,
         boxShadow: selected ? `0 0 0 2px ${COLORS.floodlight}` : "0 4px 14px rgba(0,0,0,0.35)",
-        transition: "transform .15s ease",
       }}
     >
       <div
@@ -396,7 +467,7 @@ function RoleSwitcher({ role, setRole, opzioni }) {
 --------------------------------------------------------- */
 function Tabs({ tabs, active, setActive, badges = {} }) {
   return (
-    <div style={{ display: "flex", gap: 22, borderBottom: `1px solid ${COLORS.pitchLine}`, marginBottom: 20, flexWrap: "wrap" }}>
+    <div className="tabs-scroll" style={{ display: "flex", gap: 22, borderBottom: `1px solid ${COLORS.pitchLine}`, marginBottom: 20, flexWrap: "wrap" }}>
       {tabs.map((t) => (
         <button
           key={t.id}
@@ -464,7 +535,7 @@ function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore,
       >
         {match ? (
           <>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <div style={chip("rgba(255,200,87,0.15)", COLORS.floodlight)}>{match.giorno.toUpperCase()}</div>
               {miaSquadra && <SquadraBadge tipo={miaSquadra} />}
             </div>
@@ -561,16 +632,16 @@ function DettaglioGiocatore({ player, matches, voti, onChiudi }) {
           background: COLORS.navy, borderRadius: 16, padding: 22, border: `1px solid rgba(255,255,255,0.1)`,
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div>
-            <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 19, color: COLORS.chalk }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 16 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 19, color: COLORS.chalk, wordBreak: "break-word" }}>
               {player.name}{player.soprannome ? ` "${player.soprannome}"` : ""}
             </div>
             <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: COLORS.chalkDim }}>Storico voti ricevuti</div>
           </div>
           <button
             onClick={onChiudi}
-            style={{ background: "none", border: "none", color: COLORS.chalkDim, fontSize: 20, cursor: "pointer", lineHeight: 1 }}
+            style={{ background: "none", border: "none", color: COLORS.chalkDim, fontSize: 20, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}
           >
             ✕
           </button>
@@ -593,7 +664,7 @@ function DettaglioGiocatore({ player, matches, voti, onChiudi }) {
               <div
                 key={match.id}
                 style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6,
                   background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "9px 12px",
                 }}
               >
@@ -709,28 +780,29 @@ function Storico({ players, matches, rimossi = [], voti = [] }) {
                 )}
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, margin: "16px 0" }}>
-                <div style={{ textAlign: "right", flex: 1 }}>
-                  <SquadraBadge tipo="bianchi" />
-                  <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: COLORS.chalkDim, marginTop: 6, lineHeight: 1.6 }}>
-                    {m.squadraBianchi.map((id) => nomeById(players, id, rimossi)).join(" · ")}
-                  </div>
-                </div>
+              <div style={{ textAlign: "center", margin: "14px 0 16px" }}>
                 <div
                   style={{
                     fontFamily: "IBM Plex Mono, monospace",
-                    fontSize: 30,
+                    fontSize: 34,
                     fontWeight: 600,
                     color: COLORS.chalk,
-                    whiteSpace: "nowrap",
-                    padding: "0 6px",
                   }}
                 >
                   {m.risultato.bianchi} — {m.risultato.neri}
                 </div>
-                <div style={{ textAlign: "left", flex: 1 }}>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 4 }}>
+                <div>
+                  <SquadraBadge tipo="bianchi" />
+                  <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: COLORS.chalkDim, marginTop: 6, lineHeight: 1.7 }}>
+                    {m.squadraBianchi.map((id) => nomeById(players, id, rimossi)).join(" · ")}
+                  </div>
+                </div>
+                <div>
                   <SquadraBadge tipo="neri" />
-                  <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: COLORS.chalkDim, marginTop: 6, lineHeight: 1.6 }}>
+                  <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: COLORS.chalkDim, marginTop: 6, lineHeight: 1.7 }}>
                     {m.squadraNeri.map((id) => nomeById(players, id, rimossi)).join(" · ")}
                   </div>
                 </div>
@@ -799,7 +871,7 @@ function Storico({ players, matches, rimossi = [], voti = [] }) {
                       })
                       .sort((a, b) => (b.media || 0) - (a.media || 0))
                       .map((r) => (
-                        <div key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.04)", borderRadius: 7, padding: "7px 10px" }}>
+                        <div key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6, background: "rgba(255,255,255,0.04)", borderRadius: 7, padding: "7px 10px" }}>
                           <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: COLORS.chalk }}>
                             {nomeById(players, r.id, rimossi)}
                           </span>
@@ -904,7 +976,7 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
   };
 
   if (!caricato) {
-    return <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>Caricamento…</div>;
+    return <Spinner testo="Caricamento…" />;
   }
 
   if (!match) {
@@ -974,10 +1046,10 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
                 padding: "14px 16px",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                   <MiniAvatar p={p} size={34} />
-                  <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 14.5, color: COLORS.chalk }}>
+                  <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 14.5, color: COLORS.chalk, wordBreak: "break-word" }}>
                     {p.name}
                   </div>
                 </div>
@@ -1317,7 +1389,7 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
                   <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 12.5 }}>Nessun voto ancora.</div>
                 )}
                 {votiPartita.map((v, i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", background: "rgba(229,83,60,0.06)", borderRadius: 7, padding: "7px 10px" }}>
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, background: "rgba(229,83,60,0.06)", borderRadius: 7, padding: "7px 10px" }}>
                     <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: COLORS.chalk }}>
                       {nomeById(players, v.votante_id)} → {nomeById(players, v.votato_id)}
                     </span>
@@ -2508,7 +2580,7 @@ function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfi
           <div
             key={r.label}
             style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
+              display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8,
               padding: "12px 14px",
               borderBottom: i < righe.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
             }}
@@ -3594,7 +3666,7 @@ export default function CalcettoApp() {
   if (session === undefined) {
     return (
       <div style={{ minHeight: "100%", background: COLORS.pitchDark, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>Caricamento…</div>
+        <Spinner />
       </div>
     );
   }
@@ -3610,7 +3682,7 @@ export default function CalcettoApp() {
   if (profileStatus === null) {
     return (
       <div style={{ minHeight: "100%", background: COLORS.pitchDark, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>Caricamento…</div>
+        <Spinner />
       </div>
     );
   }
@@ -3692,6 +3764,7 @@ export default function CalcettoApp() {
 
       <Tabs tabs={tabs} active={activeTab} setActive={setActiveTab} badges={{ chat: messaggiNonLetti }} />
 
+      <div key={activeTab} className="fade-in">
       {activeTab === "dashboard" && (
         <Dashboard
           players={playersConGol}
@@ -3753,6 +3826,7 @@ export default function CalcettoApp() {
           onCambiaEmail={cambiaEmail}
         />
       )}
+      </div>
     </div>
   );
 }

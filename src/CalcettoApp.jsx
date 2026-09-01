@@ -1800,22 +1800,43 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
         )}
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 22 }}>
+      <div className="figurine-grid" style={{ marginBottom: 22 }}>
         {players.map((p) => {
           const stato = squadre[p.id] || "escluso";
-          const bg = stato === "bianchi" ? COLORS.bianchi : stato === "neri" ? COLORS.neri : "rgba(255,255,255,0.06)";
-          const color = stato === "bianchi" ? COLORS.pitchDark : stato === "neri" ? COLORS.chalk : COLORS.chalkDim;
-          const border = stato === "neri" ? "1px solid rgba(255,255,255,0.2)" : "1px solid transparent";
+          const bordo =
+            stato === "bianchi" ? COLORS.bianchi : stato === "neri" ? "#0a0a0a" : "rgba(255,255,255,0.12)";
+          const alone =
+            stato === "bianchi"
+              ? `0 0 0 1px rgba(255,255,255,0.35)`
+              : stato === "neri"
+              ? `0 0 0 1px rgba(255,255,255,0.25)`
+              : "none";
           return (
             <button
               key={p.id}
               onClick={() => toggle(p.id)}
+              className="figurina-hover"
               style={{
-                padding: "8px 14px", borderRadius: 999, border, cursor: "pointer",
-                fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13, background: bg, color,
+                display: "flex", flexDirection: "column", alignItems: "center", gap: 6,
+                padding: "10px 6px", borderRadius: 12, cursor: "pointer",
+                background: stato === "escluso" ? "rgba(255,255,255,0.04)" : COLORS.navy,
+                border: `2.5px solid ${bordo}`,
+                boxShadow: alone,
+                opacity: stato === "escluso" ? 0.55 : 1,
               }}
             >
-              {stato === "bianchi" ? "⚪" : stato === "neri" ? "⚫" : "—"} {p.name}
+              <MiniAvatar p={p} size={44} />
+              <span
+                style={{
+                  fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 11.5, color: COLORS.chalk,
+                  textAlign: "center", lineHeight: 1.25, wordBreak: "break-word",
+                }}
+              >
+                {p.name}
+              </span>
+              <span style={{ fontSize: 9.5, color: COLORS.chalkDim, fontFamily: "Inter, sans-serif" }}>
+                {stato === "bianchi" ? "⚪ Bianchi" : stato === "neri" ? "⚫ Neri" : "Escluso"}
+              </span>
             </button>
           );
         })}

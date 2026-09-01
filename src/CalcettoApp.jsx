@@ -292,7 +292,8 @@ function SquadraBadge({ tipo }) {
       style={{
         ...chip(bianchi ? COLORS.bianchi : COLORS.neri, bianchi ? COLORS.pitchDark : COLORS.chalk),
         border: bianchi ? `1px solid rgba(0,0,0,0.15)` : `1px solid rgba(255,255,255,0.15)`,
-        fontWeight: 700,
+        fontWeight: bianchi ? 600 : 700,
+        fontSize: bianchi ? 10.5 : 11,
       }}
     >
       {bianchi ? "⚪ BIANCHI" : "⚫ NERI"}
@@ -436,26 +437,29 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true }) {
 --------------------------------------------------------- */
 function RoleSwitcher({ role, setRole, opzioni }) {
   return (
-    <div style={{ display: "flex", gap: 6, background: "rgba(0,0,0,0.25)", padding: 4, borderRadius: 10 }}>
+    <div style={{ display: "flex", gap: 4, background: "rgba(0,0,0,0.25)", padding: 3, borderRadius: 9 }}>
       {opzioni.map((r) => (
         <button
           key={r.id}
           onClick={() => setRole(r.id)}
+          title={r.label}
+          aria-label={r.label}
           style={{
             border: "none",
             cursor: "pointer",
-            padding: "7px 14px",
-            borderRadius: 7,
-            fontFamily: "Inter, sans-serif",
-            fontWeight: 600,
-            fontSize: 12.5,
-            letterSpacing: 0.2,
+            width: 30,
+            height: 30,
+            borderRadius: 6,
+            fontSize: 15,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             background: role === r.id ? COLORS.floodlight : "transparent",
             color: role === r.id ? COLORS.pitchDark : COLORS.chalkDim,
             transition: "all .15s ease",
           }}
         >
-          {r.label}
+          {r.icon}
         </button>
       ))}
     </div>
@@ -3731,33 +3735,31 @@ export default function CalcettoApp() {
           </div>
           <div style={{ fontSize: 12, color: COLORS.chalkDim }}>Gestione partite, formazioni, risultati e voti</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {sonoOrganizzatore || sonoAllenatore ? (
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 9, color: COLORS.chalkDim, marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.4 }}>
-                Demo: vista account
-              </div>
-              <RoleSwitcher
-                role={role}
-                setRole={handleRoleChange}
-                opzioni={
-                  sonoOrganizzatore
-                    ? [{ id: "player", label: "Giocatore" }, { id: "organizer", label: "Organizzatore" }]
-                    : [{ id: "player", label: "Giocatore" }, { id: "coach", label: "Allenatore" }]
-                }
-              />
-            </div>
+            <RoleSwitcher
+              role={role}
+              setRole={handleRoleChange}
+              opzioni={
+                sonoOrganizzatore
+                  ? [{ id: "player", label: "Vista Giocatore (demo)", icon: "👤" }, { id: "organizer", label: "Vista Organizzatore (demo)", icon: "🛠️" }]
+                  : [{ id: "player", label: "Vista Giocatore (demo)", icon: "👤" }, { id: "coach", label: "Vista Allenatore (demo)", icon: "📣" }]
+              }
+            />
           ) : (
             <span style={chip("rgba(76,175,109,0.15)", COLORS.green)}>Giocatore</span>
           )}
           <button
             onClick={() => supabase.auth.signOut()}
+            title="Esci"
+            aria-label="Esci"
             style={{
               background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 8,
-              color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 12, padding: "7px 10px", cursor: "pointer",
+              color: COLORS.chalkDim, fontSize: 15, width: 32, height: 32, display: "flex",
+              alignItems: "center", justifyContent: "center", cursor: "pointer",
             }}
           >
-            Esci
+            🚪
           </button>
         </div>
       </div>

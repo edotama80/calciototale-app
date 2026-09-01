@@ -2654,9 +2654,6 @@ function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfi
     { label: "Trattamento dati (presenze, voti, statistiche)", val: consensi?.consensoDati },
     { label: "Utilizzo foto per la figurina", val: consensi?.consensoFoto },
     { label: "Conferma maggiore età", val: consensi?.maggiorenne },
-    ...(consensi?.metodo === "google"
-      ? [{ label: "Importazione foto profilo Google", val: consensi?.importaFotoGoogle }]
-      : []),
   ];
 
   return (
@@ -2665,7 +2662,7 @@ function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfi
         I miei dati
       </div>
       <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 20 }}>
-        Consensi forniti in fase di registrazione{consensi?.timestamp ? ` · ${consensi.timestamp}` : ""} · accesso con {consensi?.metodo === "google" ? "Google" : "email e password"}
+        Consensi forniti in fase di registrazione{consensi?.timestamp ? ` · ${consensi.timestamp}` : ""}
       </div>
 
       <ModificaProfilo myProfile={myProfile} session={session} onSalvaProfilo={onSalvaProfilo} onCambiaEmail={onCambiaEmail} />
@@ -2728,7 +2725,6 @@ function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfi
 function Onboarding({ onRegistrationSent }) {
   const [mode, setMode] = useState("register"); // register | login
   const [step, setStep] = useState("welcome"); // welcome -> form -> consenso -> inviata
-  const [metodo, setMetodo] = useState(null); // "google" | "email"
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -2740,7 +2736,6 @@ function Onboarding({ onRegistrationSent }) {
   const [consensoDati, setConsensoDati] = useState(false);
   const [consensoFoto, setConsensoFoto] = useState(false);
   const [maggiorenne, setMaggiorenne] = useState(false);
-  const [importaFotoGoogle, setImportaFotoGoogle] = useState(false);
   const [infoAperta, setInfoAperta] = useState(false);
 
   const [caricamento, setCaricamento] = useState(false);
@@ -2748,18 +2743,8 @@ function Onboarding({ onRegistrationSent }) {
 
   const puoConfermare = consensoDati && consensoFoto && maggiorenne;
 
-  const scegliMetodo = async (m) => {
+  const iniziaRegistrazione = () => {
     setErrore("");
-    if (m === "google") {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo: window.location.origin },
-      });
-      if (error) setErrore("Google non è configurato correttamente: " + error.message);
-      // se va a buon fine il browser viene reindirizzato a Google, non serve altro qui
-      return;
-    }
-    setMetodo(m);
     setStep("form");
   };
 
@@ -2949,18 +2934,7 @@ function Onboarding({ onRegistrationSent }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <ErroreBox />
             <button
-              onClick={() => scegliMetodo("google")}
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                padding: "12px 0", borderRadius: 10, border: "1px solid rgba(255,255,255,0.15)",
-                background: COLORS.chalk, color: "#1a1a1a", fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer",
-              }}
-            >
-              <span style={{ fontSize: 16 }}>G</span> Continua con Google
-            </button>
-            <div style={{ textAlign: "center", fontSize: 11, color: COLORS.chalkDim, margin: "2px 0" }}>oppure</div>
-            <button
-              onClick={() => scegliMetodo("email")}
+              onClick={iniziaRegistrazione}
               style={{
                 padding: "12px 0", borderRadius: 10, border: "1px solid rgba(255,255,255,0.2)",
                 background: "rgba(255,255,255,0.06)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer",
@@ -2971,7 +2945,7 @@ function Onboarding({ onRegistrationSent }) {
           </div>
         )}
 
-        {step === "form" && metodo === "email" && (
+        {step === "form" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {[
               { label: "Nome e cognome", val: nome, set: setNome, type: "text" },
@@ -3088,121 +3062,6 @@ function Onboarding({ onRegistrationSent }) {
             </div>
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------
-   COMPLETA PROFILO — dopo il primo accesso con Google
---------------------------------------------------------- */
-function CompletaProfiloGoogle({ session, onCompletato }) {
-  const nomeSuggerito = session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.name || "";
-  const [nome, setNome] = useState(nomeSuggerito);
-  const [consensoDati, setConsensoDati] = useState(false);
-  const [consensoFoto, setConsensoFoto] = useState(false);
-  const [maggiorenne, setMaggiorenne] = useState(false);
-  const [caricamento, setCaricamento] = useState(false);
-  const [errore, setErrore] = useState("");
-
-  const puoConfermare = nome.trim() && consensoDati && consensoFoto && maggiorenne;
-
-  const Checkbox = ({ checked, onChange, children }) => (
-    <label style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer", fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalk, lineHeight: 1.5 }}>
-      <input
-        type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
-        style={{ marginTop: 3, width: 16, height: 16, accentColor: COLORS.floodlight, flexShrink: 0 }}
-      />
-      <span>{children}</span>
-    </label>
-  );
-
-  const completa = async () => {
-    setErrore("");
-    setCaricamento(true);
-    const initials = nome.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
-    const { error } = await supabase.from("profiles").insert({
-      auth_user_id: session.user.id,
-      name: nome.trim(),
-      initials,
-      consenso_dati: consensoDati,
-      consenso_foto: consensoFoto,
-      maggiorenne,
-      consenso_timestamp: new Date().toISOString(),
-    });
-    setCaricamento(false);
-    if (error) {
-      setErrore(error.message);
-      return;
-    }
-    onCompletato();
-  };
-
-  return (
-    <div
-      style={{
-        minHeight: "100%", background: `radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
-        display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px", fontFamily: "Inter, sans-serif",
-      }}
-    >
-      <style>{FONT_IMPORT}</style>
-      <div style={{ width: "100%", maxWidth: 420, background: COLORS.navy, borderRadius: 18, padding: 30, border: `1px solid rgba(255,255,255,0.08)` }}>
-        <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 19, color: COLORS.chalk, marginBottom: 6 }}>
-          Ultimo passaggio
-        </div>
-        <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 18 }}>
-          Accesso con Google riuscito ({session?.user?.email}). Conferma il tuo nome e i consensi per inviare la richiesta all'organizzatore.
-        </div>
-
-        {errore && (
-          <div style={{ background: "rgba(229,83,60,0.1)", border: `1px solid ${COLORS.red}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#ffb3a3", marginBottom: 12 }}>
-            {errore}
-          </div>
-        )}
-
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11.5, color: COLORS.chalkDim, marginBottom: 4 }}>Nome e cognome</div>
-          <input
-            value={nome} onChange={(e) => setNome(e.target.value)}
-            style={{
-              width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
-              border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
-            }}
-          />
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
-          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 12 }}>
-            <Checkbox checked={consensoDati} onChange={setConsensoDati}>
-              Acconsento al trattamento dei miei dati (nome, presenze, voti, statistiche) visibili agli altri membri del gruppo.
-            </Checkbox>
-          </div>
-          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 12 }}>
-            <Checkbox checked={consensoFoto} onChange={setConsensoFoto}>
-              Acconsento all'utilizzo della mia foto per la figurina personale.
-            </Checkbox>
-          </div>
-          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 12 }}>
-            <Checkbox checked={maggiorenne} onChange={setMaggiorenne}>
-              Confermo di essere maggiorenne.
-            </Checkbox>
-          </div>
-        </div>
-
-        <button
-          onClick={completa}
-          disabled={!puoConfermare || caricamento}
-          style={{
-            width: "100%", padding: "12px 0", borderRadius: 10, border: "none",
-            cursor: puoConfermare && !caricamento ? "pointer" : "not-allowed",
-            background: puoConfermare && !caricamento ? COLORS.floodlight : "rgba(255,255,255,0.1)",
-            color: puoConfermare && !caricamento ? COLORS.pitchDark : COLORS.chalkDim,
-            fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 14,
-          }}
-        >
-          {caricamento ? "Invio…" : "Invia richiesta di registrazione"}
-        </button>
       </div>
     </div>
   );
@@ -3370,7 +3229,6 @@ export default function CalcettoApp() {
         consensoDati: myProfile.consenso_dati,
         consensoFoto: myProfile.consenso_foto,
         maggiorenne: myProfile.maggiorenne,
-        metodo: "email",
         timestamp: myProfile.consenso_timestamp
           ? new Date(myProfile.consenso_timestamp).toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" })
           : "",
@@ -3813,7 +3671,14 @@ export default function CalcettoApp() {
   }
 
   if (profileStatus === "nessuno") {
-    return <CompletaProfiloGoogle session={session} onCompletato={ricaricaMioProfilo} />;
+    return (
+      <SchermataStato
+        icona="⚠️"
+        titolo="Account senza profilo"
+        testo="Il tuo accesso esiste ma non risulta collegato a nessun profilo. Contatta l'organizzatore per sistemarlo."
+        onEsci={() => supabase.auth.signOut()}
+      />
+    );
   }
 
   if (profileStatus === "in_attesa") {

@@ -826,7 +826,7 @@ function Storico({ players, matches, rimossi = [], voti = [], votiMvp = [] }) {
     ctx.textAlign = "center";
     ctx.fillStyle = "#B9C4BC";
     ctx.font = "24px sans-serif";
-    ctx.fillText("Calcetto Martedì & Giovedì", W / 2, H - 30);
+    ctx.fillText("Calcetto Totale", W / 2, H - 30);
 
     const url = canvas.toDataURL("image/jpeg", 0.92);
     const a = document.createElement("a");
@@ -1693,69 +1693,196 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !match) return;
-    const ctx = canvas.getContext("2d");
-    const W = 1080, H = 1350;
-    canvas.width = W;
-    canvas.height = H;
+    let annullato = false;
 
-    // sfondo
-    const bg = ctx.createLinearGradient(0, 0, W, H);
-    bg.addColorStop(0, "#1B4332");
-    bg.addColorStop(1, "#0F2E1D");
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
+    const caricaImmagine = (url) =>
+      new Promise((resolve) => {
+        if (!url) return resolve(null);
+        const img = new Image();
+        img.crossOrigin = "anonymous";
+        img.onload = () => resolve(img);
+        img.onerror = () => resolve(null);
+        img.src = url;
+      });
 
-    // header
-    ctx.textAlign = "center";
-    ctx.fillStyle = "#FFC857";
-    ctx.font = "bold 40px sans-serif";
-    ctx.fillText("⚽ CALCETTO", W / 2, 110);
-    ctx.fillStyle = "#F2F0E9";
-    ctx.font = "bold 56px sans-serif";
-    ctx.fillText(`${match.giorno.toUpperCase()} ${formattaDataIT(match.data)}`, W / 2, 180);
-    ctx.font = "32px sans-serif";
-    ctx.fillStyle = "#B9C4BC";
-    ctx.fillText(`${match.ora} · ${match.campo}`, W / 2, 226);
+    const disegnaPannelloSquadra = (ctx, x, y, w, h, titolo, lista, immagini, chiaro) => {
+      // sfondo e cornice del pannello
+      ctx.fillStyle = "rgba(5,12,7,0.55)";
+      roundRect(ctx, x, y, w, h, 16);
+      ctx.fill();
+      ctx.strokeStyle = "rgba(255,200,87,0.35)";
+      ctx.lineWidth = 2;
+      roundRect(ctx, x, y, w, h, 16);
+      ctx.stroke();
 
-    // colonne
-    const colY = 300;
-    const colW = 460;
-    const colH = 900;
-    const xBianchi = 60;
-    const xNeri = W - 60 - colW;
+      // barra titolo
+      const headerH = 64;
+      ctx.save();
+      roundRect(ctx, x, y, w, h, 16);
+      ctx.clip();
+      ctx.fillStyle = chiaro ? "#F2F0E9" : "#111418";
+      ctx.fillRect(x, y, w, headerH);
+      ctx.restore();
+      ctx.fillStyle = chiaro ? "#0F2E1D" : "#F2F0E9";
+      ctx.font = "bold 30px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(titolo, x + w / 2, y + 42);
 
-    // pannello bianchi
-    ctx.fillStyle = "#F2F0E9";
-    roundRect(ctx, xBianchi, colY, colW, colH, 24);
-    ctx.fill();
-    ctx.fillStyle = "#0F2E1D";
-    ctx.font = "bold 42px sans-serif";
-    ctx.fillText("⚪ BIANCHI", xBianchi + colW / 2, colY + 70);
-    ctx.font = "34px sans-serif";
-    listaBianchi.forEach((p, i) => {
-      ctx.fillText(p.name, xBianchi + colW / 2, colY + 140 + i * 60);
-    });
+      // griglia giocatori (2 colonne x 3 righe)
+      const cols = 2;
+      const cellW = w / cols;
+      const cellH = 210;
+      const raggio = 52;
+      lista.forEach((p, i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const cx = x + cellW * col + cellW / 2;
+        const cy = y + headerH + 45 + row * cellH + raggio;
 
-    // pannello neri
-    ctx.fillStyle = "#111418";
-    roundRect(ctx, xNeri, colY, colW, colH, 24);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.15)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, xNeri, colY, colW, colH, 24);
-    ctx.stroke();
-    ctx.fillStyle = "#F2F0E9";
-    ctx.font = "bold 42px sans-serif";
-    ctx.fillText("⚫ NERI", xNeri + colW / 2, colY + 70);
-    ctx.font = "34px sans-serif";
-    listaNeri.forEach((p, i) => {
-      ctx.fillText(p.name, xNeri + colW / 2, colY + 140 + i * 60);
-    });
+        // anello dorato
+        ctx.beginPath();
+        ctx.arc(cx, cy, raggio + 4, 0, Math.PI * 2);
+        const grad = ctx.createLinearGradient(cx - raggio, cy - raggio, cx + raggio, cy + raggio);
+        grad.addColorStop(0, "#FFC857");
+        grad.addColorStop(1, "#8a6a1a");
+        ctx.fillStyle = grad;
+        ctx.fill();
 
-    // footer
-    ctx.fillStyle = "#B9C4BC";
-    ctx.font = "26px sans-serif";
-    ctx.fillText("Calcetto Martedì & Giovedì", W / 2, H - 40);
+        // foto o iniziali
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, raggio, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.clip();
+        if (immagini[i]) {
+          ctx.drawImage(immagini[i], cx - raggio, cy - raggio, raggio * 2, raggio * 2);
+        } else {
+          ctx.fillStyle = p.colore || "#2D6A4F";
+          ctx.fillRect(cx - raggio, cy - raggio, raggio * 2, raggio * 2);
+          ctx.fillStyle = "#F2F0E9";
+          ctx.font = "bold 32px sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(p.initials || "", cx, cy + 2);
+          ctx.textBaseline = "alphabetic";
+        }
+        ctx.restore();
+
+        // nome (troncato se troppo lungo)
+        ctx.fillStyle = "#F2F0E9";
+        ctx.font = "23px sans-serif";
+        ctx.textAlign = "center";
+        let nome = p.name || "";
+        while (ctx.measureText(nome).width > cellW - 24 && nome.length > 3) {
+          nome = nome.slice(0, -1);
+        }
+        if (nome !== p.name) nome += "…";
+        ctx.fillText(nome, cx, cy + raggio + 32);
+      });
+    };
+
+    const disegna = async () => {
+      const [immaginiBianchi, immaginiNeri] = await Promise.all([
+        Promise.all(listaBianchi.map((p) => caricaImmagine(p.foto_url))),
+        Promise.all(listaNeri.map((p) => caricaImmagine(p.foto_url))),
+      ]);
+      if (annullato) return;
+
+      const ctx = canvas.getContext("2d");
+      const W = 1080;
+      const panelY = 260;
+      const panelH = 750; // 3 righe fisse, spazio per fino a 6 giocatori
+      const H = panelY + panelH + 90;
+      canvas.width = W;
+      canvas.height = H;
+
+      // sfondo con texture rigata + gradiente radiale, coerente col resto dell'app
+      ctx.fillStyle = "#0F2E1D";
+      ctx.fillRect(0, 0, W, H);
+      ctx.save();
+      ctx.strokeStyle = "rgba(255,255,255,0.04)";
+      ctx.lineWidth = 2;
+      for (let d = -H; d < W; d += 9) {
+        ctx.beginPath();
+        ctx.moveTo(d, 0);
+        ctx.lineTo(d + H, H);
+        ctx.stroke();
+      }
+      ctx.restore();
+      const bgRadiale = ctx.createRadialGradient(W * 0.2, 0, 50, W * 0.2, 0, W);
+      bgRadiale.addColorStop(0, "rgba(27,67,50,0.55)");
+      bgRadiale.addColorStop(1, "rgba(15,46,29,0)");
+      ctx.fillStyle = bgRadiale;
+      ctx.fillRect(0, 0, W, H);
+
+      // cornice dorata doppia
+      ctx.strokeStyle = "#FFC857";
+      ctx.lineWidth = 6;
+      roundRect(ctx, 12, 12, W - 24, H - 24, 20);
+      ctx.stroke();
+      ctx.strokeStyle = "rgba(255,200,87,0.4)";
+      ctx.lineWidth = 1.5;
+      roundRect(ctx, 24, 24, W - 48, H - 48, 16);
+      ctx.stroke();
+
+      // banner titolo
+      const bannerGrad = ctx.createLinearGradient(60, 0, W - 60, 0);
+      bannerGrad.addColorStop(0, "#8a6a1a");
+      bannerGrad.addColorStop(0.5, "#FFC857");
+      bannerGrad.addColorStop(1, "#8a6a1a");
+      ctx.fillStyle = bannerGrad;
+      roundRect(ctx, 60, 46, W - 120, 58, 10);
+      ctx.fill();
+      ctx.fillStyle = "#0F2E1D";
+      ctx.font = "bold 28px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("FORMAZIONE GARA · CALCETTO TOTALE", W / 2, 84);
+
+      ctx.fillStyle = "#F2F0E9";
+      ctx.font = "bold 42px sans-serif";
+      ctx.fillText(`${match.giorno.toUpperCase()} ${formattaDataIT(match.data)} · ${match.ora}`, W / 2, 162);
+      ctx.font = "25px sans-serif";
+      ctx.fillStyle = "#B9C4BC";
+      ctx.fillText(match.campo, W / 2, 198);
+
+      // pannelli squadra
+      const panelW = (W - 60 * 2 - 60) / 2;
+      const xBianchi = 60;
+      const xNeri = 60 + panelW + 60;
+
+      disegnaPannelloSquadra(ctx, xBianchi, panelY, panelW, panelH, "⚪ BIANCHI", listaBianchi, immaginiBianchi, true);
+      disegnaPannelloSquadra(ctx, xNeri, panelY, panelW, panelH, "⚫ NERI", listaNeri, immaginiNeri, false);
+
+      // pallino "VS" centrale
+      const cxVs = W / 2;
+      const cyVs = panelY + panelH / 2;
+      ctx.beginPath();
+      ctx.arc(cxVs, cyVs, 34, 0, Math.PI * 2);
+      const vsGrad = ctx.createLinearGradient(cxVs - 34, cyVs - 34, cxVs + 34, cyVs + 34);
+      vsGrad.addColorStop(0, "#FFC857");
+      vsGrad.addColorStop(1, "#8a6a1a");
+      ctx.fillStyle = vsGrad;
+      ctx.fill();
+      ctx.strokeStyle = "#0F2E1D";
+      ctx.lineWidth = 3;
+      ctx.stroke();
+      ctx.fillStyle = "#0F2E1D";
+      ctx.font = "bold 24px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("VS", cxVs, cyVs + 1);
+      ctx.textBaseline = "alphabetic";
+
+      // footer
+      ctx.fillStyle = "#B9C4BC";
+      ctx.font = "22px sans-serif";
+      ctx.fillText("Calcetto Totale", W / 2, H - 30);
+    };
+
+    disegna();
+    return () => {
+      annullato = true;
+    };
   }, [squadre, match, listaBianchi.length, listaNeri.length]);
 
   function roundRect(ctx, x, y, w, h, r) {
@@ -1771,11 +1898,15 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
   const scarica = () => {
     if (!match) return;
     const canvas = canvasRef.current;
-    const url = canvas.toDataURL("image/jpeg", 0.92);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `formazione-${match.giorno.toLowerCase()}-${match.data.replace(/\s/g, "-")}.jpg`;
-    a.click();
+    try {
+      const url = canvas.toDataURL("image/jpeg", 0.92);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `formazione-${match.giorno.toLowerCase()}-${match.data.replace(/\s/g, "-")}.jpg`;
+      a.click();
+    } catch (e) {
+      alert("Non riesco a generare l'immagine con le foto per un problema di permessi del browser. Riprova; se persiste, avvisami.");
+    }
   };
 
   if (!match) {
@@ -2964,7 +3095,7 @@ function Onboarding({ onRegistrationSent }) {
     <div
       style={{
         minHeight: "100%",
-        background: `radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
+        background: `repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 2px, transparent 2px, transparent 7px), radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -2976,7 +3107,7 @@ function Onboarding({ onRegistrationSent }) {
       <div style={{ width: "100%", maxWidth: 420, background: COLORS.navy, borderRadius: 18, padding: 30, border: `1px solid rgba(255,255,255,0.08)` }}>
         <div style={{ textAlign: "center", marginBottom: 22 }}>
           <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 800, fontSize: 24, color: COLORS.chalk }}>
-            ⚽ CALCETTO MARTEDÌ & GIOVEDÌ
+            ⚽ CALCETTO TOTALE
           </div>
           <div style={{ fontSize: 12, color: COLORS.chalkDim, marginTop: 4 }}>Entra per vedere convocazioni, voti e la tua figurina</div>
         </div>
@@ -3229,7 +3360,7 @@ function ImpostaNuovaPassword({ onImpostata }) {
   return (
     <div
       style={{
-        minHeight: "100%", background: `radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
+        minHeight: "100%", background: `repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 2px, transparent 2px, transparent 7px), radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
         display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px", fontFamily: "Inter, sans-serif",
       }}
     >
@@ -3297,7 +3428,7 @@ function SchermataStato({ icona, titolo, testo, onEsci }) {
     <div
       style={{
         minHeight: "100%",
-        background: `radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
+        background: `repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 2px, transparent 2px, transparent 7px), radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
         display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px",
         fontFamily: "Inter, sans-serif",
       }}
@@ -3842,7 +3973,7 @@ export default function CalcettoApp() {
     <div
       style={{
         minHeight: "100%",
-        background: `radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
+        background: `repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 2px, transparent 2px, transparent 7px), radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
         padding: "22px 20px 40px",
         fontFamily: "Inter, sans-serif",
       }}
@@ -3852,7 +3983,7 @@ export default function CalcettoApp() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 26, flexWrap: "wrap", gap: 14, position: "relative", zIndex: 60 }}>
         <div>
           <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 800, fontSize: 26, color: COLORS.chalk, letterSpacing: 0.4 }}>
-            ⚽ CALCETTO MARTEDÌ & GIOVEDÌ
+            ⚽ CALCETTO TOTALE
           </div>
           <div style={{ fontSize: 12, color: COLORS.chalkDim }}>Gestione partite, formazioni, risultati e voti</div>
         </div>

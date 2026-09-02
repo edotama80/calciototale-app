@@ -343,76 +343,113 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true }) {
         position: "relative",
         width: larghezzaFissa ? 168 : "100%",
         borderRadius: 16,
-        padding: 2,
+        padding: 3,
         cursor: onClick ? "pointer" : "default",
-        background: selected
-          ? `linear-gradient(160deg, ${COLORS.floodlight}, #7a5b12)`
-          : `linear-gradient(160deg, #3a4a5c, #16233D)`,
-        boxShadow: selected ? `0 0 0 2px ${COLORS.floodlight}` : "0 4px 14px rgba(0,0,0,0.35)",
+        background: `linear-gradient(155deg, ${COLORS.floodlight} 0%, #8a6a1a 45%, ${COLORS.floodlight} 100%)`,
+        boxShadow: selected
+          ? `0 0 0 2px ${COLORS.floodlight}, 0 6px 18px rgba(0,0,0,0.5)`
+          : "0 4px 14px rgba(0,0,0,0.4)",
       }}
     >
       <div
         style={{
-          background: `linear-gradient(165deg, ${COLORS.navy} 0%, #0c1424 100%)`,
-          borderRadius: 14,
-          padding: "14px 12px 12px",
+          background: `
+            repeating-linear-gradient(135deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 2px, transparent 2px, transparent 6px),
+            radial-gradient(circle at 30% 0%, ${COLORS.pitchLine} 0%, transparent 55%),
+            linear-gradient(165deg, ${COLORS.pitchDark} 0%, #050c07 100%)
+          `,
+          borderRadius: 13,
+          border: `1px solid rgba(255,200,87,0.35)`,
+          padding: "10px 11px 11px",
           fontFamily: "Inter, sans-serif",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        {/* Banner superiore */}
+        <div
+          style={{
+            textAlign: "center",
+            fontFamily: "Barlow Condensed, sans-serif",
+            fontWeight: 800,
+            fontSize: 9.5,
+            letterSpacing: 1.2,
+            color: "#0F2E1D",
+            background: `linear-gradient(90deg, #8a6a1a, ${COLORS.floodlight}, #8a6a1a)`,
+            borderRadius: 5,
+            padding: "3px 4px",
+            marginBottom: 8,
+            textTransform: "uppercase",
+          }}
+        >
+          Calcetto Totale
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "0 1px" }}>
           <div
             style={{
               fontFamily: "IBM Plex Mono, monospace",
-              fontSize: 26,
-              fontWeight: 600,
+              fontSize: 24,
+              fontWeight: 700,
               color: COLORS.floodlight,
               lineHeight: 1,
+              textShadow: "0 0 8px rgba(255,200,87,0.35)",
             }}
           >
             {p.overall}
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 9, color: COLORS.chalkDim, textTransform: "uppercase", letterSpacing: 0.6 }}>
+            <div style={{ fontSize: 8.5, color: COLORS.chalkDim, textTransform: "uppercase", letterSpacing: 0.6 }}>
               {p.role}
             </div>
             {p.ospite && (
-              <div style={{ fontSize: 8, color: COLORS.red, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, marginTop: 2 }}>
+              <div style={{ fontSize: 7.5, color: COLORS.red, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, marginTop: 2 }}>
                 Ospite
               </div>
             )}
           </div>
         </div>
 
+        {/* Foto con anello luminoso */}
         <div
           style={{
-            width: 72,
-            height: 72,
+            width: 74,
+            height: 74,
             borderRadius: "50%",
-            background: p.foto_url ? "transparent" : p.colore,
-            margin: "10px auto 8px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontFamily: "Barlow Condensed, sans-serif",
-            fontWeight: 700,
-            fontSize: 26,
-            color: COLORS.chalk,
-            border: `2px solid rgba(255,255,255,0.15)`,
-            overflow: "hidden",
+            margin: "8px auto 6px",
+            padding: 3,
+            background: `conic-gradient(from 180deg, ${COLORS.floodlight}, #4dd0e1, ${COLORS.floodlight})`,
+            boxShadow: "0 0 10px rgba(255,200,87,0.3)",
           }}
         >
-          {p.foto_url ? (
-            <img src={p.foto_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          ) : (
-            p.initials
-          )}
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              borderRadius: "50%",
+              background: p.foto_url ? "transparent" : p.colore,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontFamily: "Barlow Condensed, sans-serif",
+              fontWeight: 700,
+              fontSize: 24,
+              color: COLORS.chalk,
+              border: `2px solid ${COLORS.pitchDark}`,
+              overflow: "hidden",
+            }}
+          >
+            {p.foto_url ? (
+              <img src={p.foto_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            ) : (
+              p.initials
+            )}
+          </div>
         </div>
 
         <div
           style={{
             fontFamily: "Barlow Condensed, sans-serif",
-            fontWeight: 600,
-            fontSize: 16,
+            fontWeight: 700,
+            fontSize: 15,
             color: COLORS.chalk,
             textAlign: "center",
             letterSpacing: 0.3,
@@ -421,7 +458,7 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true }) {
           {p.name}
         </div>
         {p.soprannome && (
-          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 10.5, fontStyle: "italic", color: COLORS.floodlight, textAlign: "center", marginBottom: 4 }}>
+          <div style={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontSize: 11, color: COLORS.floodlight, textAlign: "center", marginBottom: 4 }}>
             "{p.soprannome}"
           </div>
         )}
@@ -429,11 +466,11 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true }) {
 
         {/* Affidabilita gauge */}
         <div style={{ marginBottom: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.chalkDim, marginBottom: 2 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 8.5, color: COLORS.chalkDim, marginBottom: 2, letterSpacing: 0.4 }}>
             <span>AFFIDABILITÀ</span>
             <span style={{ color: affidabilitaColor(p.affidabilita), fontWeight: 700 }}>{p.affidabilita}%</span>
           </div>
-          <div style={{ height: 5, background: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden" }}>
+          <div style={{ height: 5, background: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden", border: "1px solid rgba(255,255,255,0.05)" }}>
             <div style={{ height: "100%", width: `${p.affidabilita}%`, background: affidabilitaColor(p.affidabilita) }} />
           </div>
         </div>
@@ -443,19 +480,29 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true }) {
             display: "grid",
             gridTemplateColumns: "repeat(4, 1fr)",
             gap: 4,
-            fontSize: 9.5,
-            color: COLORS.chalkDim,
-            fontFamily: "IBM Plex Mono, monospace",
             marginTop: 8,
-            textAlign: "center",
-            borderTop: "1px solid rgba(255,255,255,0.08)",
+            borderTop: "1px solid rgba(255,200,87,0.2)",
             paddingTop: 8,
           }}
         >
-          <div><div style={{ color: COLORS.chalk, fontWeight: 600 }}>{p.presenze}</div>PRES</div>
-          <div><div style={{ color: COLORS.chalk, fontWeight: 600 }}>{p.assenze}</div>ASS</div>
-          <div><div style={{ color: COLORS.floodlight, fontWeight: 600 }}>{p.gol ?? 0}</div>GOL</div>
-          <div><div style={{ color: COLORS.chalk, fontWeight: 600 }}>{p.mvp}</div>MVP</div>
+          {[
+            { icona: "👕", val: p.presenze, etichetta: "PRES" },
+            { icona: "🚫", val: p.assenze, etichetta: "ASS" },
+            { icona: "⚽", val: p.gol ?? 0, etichetta: "GOL" },
+            { icona: "🏆", val: p.mvp, etichetta: "MVP" },
+          ].map((s) => (
+            <div
+              key={s.etichetta}
+              style={{
+                textAlign: "center", background: "rgba(255,255,255,0.03)", borderRadius: 6,
+                border: "1px solid rgba(255,200,87,0.15)", padding: "4px 0 3px",
+              }}
+            >
+              <div style={{ fontSize: 12, lineHeight: 1 }}>{s.icona}</div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontWeight: 700, fontSize: 11, color: COLORS.chalk, marginTop: 2 }}>{s.val}</div>
+              <div style={{ fontSize: 6.5, color: COLORS.chalkDim, letterSpacing: 0.4, marginTop: 1 }}>{s.etichetta}</div>
+            </div>
+          ))}
         </div>
       </div>
     </div>

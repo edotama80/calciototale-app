@@ -575,10 +575,10 @@ function RoleSwitcher({ role, setRole, opzioni }) {
           style={{
             border: "none",
             cursor: "pointer",
-            width: 30,
-            height: 30,
-            borderRadius: 6,
-            fontSize: 15,
+            width: 38,
+            height: 38,
+            borderRadius: 7,
+            fontSize: 22,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -4039,24 +4039,24 @@ export default function CalcettoApp() {
     player: [
       { id: "dashboard", label: "Dashboard" },
       { id: "squadra", label: "Giocatori" },
-      { id: "storico", label: "Partite" },
       { id: "voti", label: "Vota partita" },
+      { id: "storico", label: "Partite" },
     ],
     organizer: [
       { id: "dashboard", label: "Dashboard" },
+      { id: "squadra", label: "Giocatori" },
       { id: "formazione", label: "Crea Partita" },
       { id: "risultato", label: "Risultato" },
-      { id: "permessi", label: "Permessi" },
-      { id: "squadra", label: "Giocatori" },
-      { id: "storico", label: "Partite" },
       { id: "voti", label: "Vota partita" },
+      { id: "storico", label: "Partite" },
+      { id: "permessi", label: "Permessi" },
     ],
     coach: [
       { id: "dashboard", label: "Dashboard" },
-      { id: "formazione", label: "Crea Partita" },
       { id: "squadra", label: "Giocatori" },
-      { id: "storico", label: "Partite" },
+      { id: "formazione", label: "Crea Partita" },
       { id: "voti", label: "Vota partita" },
+      { id: "storico", label: "Partite" },
     ],
   };
 
@@ -4199,7 +4199,7 @@ export default function CalcettoApp() {
             aria-label="Chat"
             style={{
               position: "relative", background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 8,
-              color: activeTab === "chat" ? COLORS.floodlight : COLORS.chalkDim, fontSize: 15, width: 32, height: 32,
+              color: activeTab === "chat" ? COLORS.floodlight : COLORS.chalkDim, fontSize: 24, width: 38, height: 38,
               display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
             }}
           >
@@ -4225,7 +4225,7 @@ export default function CalcettoApp() {
             aria-label="I miei dati"
             style={{
               background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 8,
-              color: activeTab === "mieidati" ? COLORS.floodlight : COLORS.chalkDim, fontSize: 15, width: 32, height: 32,
+              color: activeTab === "mieidati" ? COLORS.floodlight : COLORS.chalkDim, fontSize: 24, width: 38, height: 38,
               display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
             }}
           >
@@ -4266,9 +4266,9 @@ export default function CalcettoApp() {
               border: `1px solid ${confermaEsci ? COLORS.red : "rgba(255,255,255,0.15)"}`,
               borderRadius: 8,
               color: confermaEsci ? COLORS.chalk : COLORS.chalkDim,
-              fontSize: confermaEsci ? 10.5 : 15,
+              fontSize: confermaEsci ? 10.5 : 24,
               fontFamily: "Inter, sans-serif", fontWeight: 700,
-              width: confermaEsci ? 62 : 32, height: 32, display: "flex",
+              width: confermaEsci ? 70 : 38, height: 38, display: "flex",
               alignItems: "center", justifyContent: "center", cursor: "pointer",
               transition: "width .15s ease",
             }}

@@ -3674,29 +3674,14 @@ export default function CalcettoApp() {
   };
 
   const collegaOspite = async (ospiteId, richiesta) => {
-    // Il profilo "ospite" eredita l'account appena registrato: diventa lui
-    // l'account definitivo, e la riga di registrazione in attesa viene rimossa.
-    const { data, error } = await supabase
-      .from("profiles")
-      .update({
-        auth_user_id: richiesta.auth_user_id,
-        ospite: false,
-        stato_registrazione: "approvato",
-        consenso_dati: richiesta.consenso_dati,
-        consenso_foto: richiesta.consenso_foto,
-        maggiorenne: richiesta.maggiorenne,
-        consenso_timestamp: richiesta.consenso_timestamp,
-      })
-      .eq("id", ospiteId)
-      .select();
-
+    // Il profilo "ospite" eredita l'account appena registrato: l'operazione
+    // avviene in un unico blocco atomico sul database (vedi funzione
+    // collega_ospite), così non si rischia mai di perdere la richiesta a metà.
+    const { error } = await supabase.rpc("collega_ospite", {
+      p_ospite_id: ospiteId,
+      p_richiesta_id: richiesta.id,
+    });
     if (error) throw error;
-    if (!data || data.length === 0) {
-      throw new Error("Il profilo ospite selezionato non è stato trovato: il collegamento non è avvenuto, la richiesta resta in attesa.");
-    }
-
-    const { error: erroreEliminazione } = await supabase.from("profiles").delete().eq("id", richiesta.id);
-    if (erroreEliminazione) throw erroreEliminazione;
   };
 
   const approvaRegistrazione = async (richiestaId, comeOspiteId) => {

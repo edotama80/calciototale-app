@@ -1152,6 +1152,7 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
           const modificando = inModifica[p.id];
           const mostraSlider = (!done || modificando) && !votazioniChiuse;
           const inCorso = invioInCorso[p.id];
+          const mioVotoDato = votiEsistenti.find((v) => v.votante_id === currentPlayerId && v.votato_id === p.id);
           return (
             <div
               key={p.id}
@@ -1171,7 +1172,9 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
                 </div>
                 {done && !modificando ? (
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={chip("rgba(76,175,109,0.15)", COLORS.green)}>Voto inviato ✓</span>
+                    <span style={chip("rgba(76,175,109,0.15)", COLORS.green)}>
+                      Voto inviato{mioVotoDato ? `: ${Number(mioVotoDato.voto).toFixed(1)}` : ""} ✓
+                    </span>
                     {!votazioniChiuse && (
                       <button
                         onClick={() => modificaVoto(p.id)}
@@ -1904,16 +1907,9 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
           .filter((p) => p.name.toLowerCase().includes(ricercaGiocatore.trim().toLowerCase()))
           .map((p) => {
           const stato = squadre[p.id] || "escluso";
-          const bordo =
-            stato === "bianchi" ? COLORS.bianchi : stato === "neri" ? "#000000" : "rgba(255,255,255,0.12)";
-          const alone =
-            stato === "bianchi"
-              ? `0 0 0 1px rgba(255,255,255,0.35)`
-              : stato === "neri"
-              ? `0 0 0 3px rgba(255,255,255,0.7)`
-              : "none";
           const sfondo =
-            stato === "escluso" ? "rgba(255,255,255,0.04)" : stato === "neri" ? "#1a1d22" : COLORS.navy;
+            stato === "bianchi" ? COLORS.bianchi : stato === "neri" ? "#111418" : "rgba(255,255,255,0.04)";
+          const testo = stato === "bianchi" ? COLORS.pitchDark : COLORS.chalk;
           return (
             <button
               key={p.id}
@@ -1923,22 +1919,18 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
                 display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
                 padding: "6px 3px", borderRadius: 10, cursor: "pointer",
                 background: sfondo,
-                border: `2px solid ${bordo}`,
-                boxShadow: alone,
+                border: `2px solid rgba(255,255,255,0.15)`,
                 opacity: stato === "escluso" ? 0.55 : 1,
               }}
             >
               <MiniAvatar p={p} size={30} />
               <span
                 style={{
-                  fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 9.5, color: COLORS.chalk,
+                  fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 9.5, color: testo,
                   textAlign: "center", lineHeight: 1.15, wordBreak: "break-word",
                 }}
               >
                 {p.name}
-              </span>
-              <span style={{ fontSize: 8, color: COLORS.chalkDim, fontFamily: "Inter, sans-serif" }}>
-                {stato === "bianchi" ? "⚪" : stato === "neri" ? "⚫" : "—"}
               </span>
             </button>
           );
@@ -3705,8 +3697,19 @@ export default function CalcettoApp() {
     ],
   };
 
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem("calcetto_activeTab") || "dashboard");
   const [confermaEsci, setConfermaEsci] = useState(false);
+
+  useEffect(() => {
+    localStorage.setItem("calcetto_activeTab", activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!myProfile) return;
+    const tabValide = [...tabsByRole[role].map((t) => t.id), "chat", "mieidati"];
+    if (!tabValide.includes(activeTab)) setActiveTab("dashboard");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myProfile, role]);
 
   useEffect(() => {
     if (!confermaEsci) return;
@@ -3761,7 +3764,7 @@ export default function CalcettoApp() {
         icona="⚠️"
         titolo="Account senza profilo"
         testo="Il tuo accesso esiste ma non risulta collegato a nessun profilo. Contatta l'organizzatore per sistemarlo."
-        onEsci={() => supabase.auth.signOut()}
+        onEsci={() => { localStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
       />
     );
   }
@@ -3772,7 +3775,7 @@ export default function CalcettoApp() {
         icona="⏳"
         titolo="In attesa di approvazione"
         testo="La tua registrazione è stata ricevuta. L'organizzatore deve approvarla prima che tu possa accedere all'app."
-        onEsci={() => supabase.auth.signOut()}
+        onEsci={() => { localStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
       />
     );
   }
@@ -3783,7 +3786,7 @@ export default function CalcettoApp() {
         icona="✕"
         titolo="Richiesta non approvata"
         testo="L'organizzatore non ha approvato questa registrazione. Contattalo direttamente se pensi sia un errore."
-        onEsci={() => supabase.auth.signOut()}
+        onEsci={() => { localStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
       />
     );
   }
@@ -3799,7 +3802,7 @@ export default function CalcettoApp() {
     >
       <style>{FONT_IMPORT}</style>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 26, flexWrap: "wrap", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 26, flexWrap: "wrap", gap: 14, position: "relative", zIndex: 60 }}>
         <div>
           <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 800, fontSize: 26, color: COLORS.chalk, letterSpacing: 0.4 }}>
             ⚽ CALCETTO MARTEDÌ & GIOVEDÌ
@@ -3867,6 +3870,7 @@ export default function CalcettoApp() {
           <button
             onClick={() => {
               if (confermaEsci) {
+                localStorage.removeItem("calcetto_activeTab");
                 supabase.auth.signOut();
               } else {
                 setConfermaEsci(true);

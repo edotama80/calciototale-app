@@ -2200,6 +2200,8 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
   const [profiloTenere, setProfiloTenere] = useState("");
   const [profiloEliminare, setProfiloEliminare] = useState("");
   const [confermaUnione, setConfermaUnione] = useState(false);
+  const [approvandoId, setApprovandoId] = useState(null);
+  const [erroreApprovazione, setErroreApprovazione] = useState({});
   const [unioneInCorso, setUnioneInCorso] = useState(false);
   const [erroreUnione, setErroreUnione] = useState("");
 
@@ -2273,16 +2275,32 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
                   </div>
                 )}
 
+                {erroreApprovazione[r.id] && (
+                  <div style={{ background: "rgba(229,83,60,0.1)", border: `1px solid ${COLORS.red}`, borderRadius: 7, padding: "7px 10px", marginBottom: 8, fontFamily: "Inter, sans-serif", fontSize: 11.5, color: "#ffb3a3" }}>
+                    ⚠️ {erroreApprovazione[r.id]}
+                  </div>
+                )}
+
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
-                    onClick={() => onApprovaRegistrazione(r.id, collegamentoScelto[r.id] || null)}
+                    onClick={async () => {
+                      setErroreApprovazione((s) => ({ ...s, [r.id]: null }));
+                      setApprovandoId(r.id);
+                      try {
+                        await onApprovaRegistrazione(r.id, collegamentoScelto[r.id] || null);
+                      } catch (e) {
+                        setErroreApprovazione((s) => ({ ...s, [r.id]: e.message || "Errore durante l'approvazione." }));
+                      }
+                      setApprovandoId(null);
+                    }}
+                    disabled={approvandoId === r.id}
                     style={{
-                      padding: "7px 14px", borderRadius: 7, border: "none", cursor: "pointer",
+                      padding: "7px 14px", borderRadius: 7, border: "none", cursor: approvandoId === r.id ? "not-allowed" : "pointer",
                       fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12,
                       background: COLORS.green, color: COLORS.pitchDark,
                     }}
                   >
-                    ✓ Approva
+                    {approvandoId === r.id ? "Approvazione…" : "✓ Approva"}
                   </button>
                   <button
                     onClick={() => onRifiutaRegistrazione(r.id)}
@@ -3314,12 +3332,12 @@ function Onboarding({ onRegistrationSent }) {
 
         {step === "inviata" && (
           <div style={{ textAlign: "center", padding: "10px 0" }}>
-            <div style={{ fontSize: 40, marginBottom: 14 }}>⏳</div>
+            <div style={{ fontSize: 40, marginBottom: 14 }}>✅</div>
             <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 19, color: COLORS.chalk, marginBottom: 8 }}>
-              Richiesta inviata
+              Registrazione effettuata correttamente
             </div>
             <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, lineHeight: 1.6 }}>
-              L'organizzatore deve approvare la tua registrazione prima che tu possa accedere. Riceverai conferma appena verrà gestita — se eri già in rosa come ospite, i tuoi dati verranno collegati automaticamente.
+              Attendi che l'organizzatore autorizzi il tuo account. Verrai avvisato appena attivo.
             </div>
           </div>
         )}
@@ -3423,7 +3441,7 @@ function ImpostaNuovaPassword({ onImpostata }) {
 /* ---------------------------------------------------------
    SCHERMATE DI ATTESA / STATO ACCOUNT
 --------------------------------------------------------- */
-function SchermataStato({ icona, titolo, testo, onEsci }) {
+function SchermataStato({ icona, titolo, testo, onEsci, onRiprova, labelEsci = "Esci" }) {
   return (
     <div
       style={{
@@ -3442,6 +3460,18 @@ function SchermataStato({ icona, titolo, testo, onEsci }) {
         <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, lineHeight: 1.6, marginBottom: 20 }}>
           {testo}
         </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+          {onRiprova && (
+            <button
+              onClick={onRiprova}
+              style={{
+                padding: "9px 18px", borderRadius: 9, border: "none", cursor: "pointer",
+                background: COLORS.floodlight, color: COLORS.pitchDark, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12.5,
+              }}
+            >
+              Riprova
+            </button>
+          )}
         <button
           onClick={onEsci}
           style={{
@@ -3449,8 +3479,9 @@ function SchermataStato({ icona, titolo, testo, onEsci }) {
             background: "transparent", color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12.5,
           }}
         >
-          Esci
+          {labelEsci}
         </button>
+        </div>
       </div>
     </div>
   );
@@ -3645,7 +3676,7 @@ export default function CalcettoApp() {
   const collegaOspite = async (ospiteId, richiesta) => {
     // Il profilo "ospite" eredita l'account appena registrato: diventa lui
     // l'account definitivo, e la riga di registrazione in attesa viene rimossa.
-    await supabase
+    const { data, error } = await supabase
       .from("profiles")
       .update({
         auth_user_id: richiesta.auth_user_id,
@@ -3656,8 +3687,16 @@ export default function CalcettoApp() {
         maggiorenne: richiesta.maggiorenne,
         consenso_timestamp: richiesta.consenso_timestamp,
       })
-      .eq("id", ospiteId);
-    await supabase.from("profiles").delete().eq("id", richiesta.id);
+      .eq("id", ospiteId)
+      .select();
+
+    if (error) throw error;
+    if (!data || data.length === 0) {
+      throw new Error("Il profilo ospite selezionato non è stato trovato: il collegamento non è avvenuto, la richiesta resta in attesa.");
+    }
+
+    const { error: erroreEliminazione } = await supabase.from("profiles").delete().eq("id", richiesta.id);
+    if (erroreEliminazione) throw erroreEliminazione;
   };
 
   const approvaRegistrazione = async (richiestaId, comeOspiteId) => {
@@ -3921,7 +3960,7 @@ export default function CalcettoApp() {
   }
 
   if (!session) {
-    return <Onboarding onRegistrationSent={() => {}} />;
+    return <Onboarding onRegistrationSent={ricaricaMioProfilo} />;
   }
 
   if (modalitaRecuperoPassword) {
@@ -3939,9 +3978,9 @@ export default function CalcettoApp() {
   if (profileStatus === "nessuno") {
     return (
       <SchermataStato
-        icona="⚠️"
-        titolo="Account senza profilo"
-        testo="Il tuo accesso esiste ma non risulta collegato a nessun profilo. Contatta l'organizzatore per sistemarlo."
+        icona="⏳"
+        titolo="Un momento…"
+        testo="Stiamo completando la tua registrazione. Riprova tra qualche secondo ricaricando la pagina — se il problema persiste, contatta l'organizzatore."
         onEsci={() => { localStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
       />
     );
@@ -3950,9 +3989,10 @@ export default function CalcettoApp() {
   if (profileStatus === "in_attesa") {
     return (
       <SchermataStato
-        icona="⏳"
-        titolo="In attesa di approvazione"
-        testo="La tua registrazione è stata ricevuta. L'organizzatore deve approvarla prima che tu possa accedere all'app."
+        icona="✅"
+        titolo="Registrazione effettuata correttamente"
+        testo="Attendi che l'organizzatore autorizzi il tuo account. Verrai avvisato appena attivo."
+        labelEsci="Esci e torna al login"
         onEsci={() => { localStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
       />
     );

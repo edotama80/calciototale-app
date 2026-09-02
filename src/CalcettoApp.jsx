@@ -206,6 +206,34 @@ function affidabilitaColor(v) {
   return COLORS.red;
 }
 
+function statoGiocatoreInfo(stato) {
+  if (stato === "infortunato") return { label: "Infortunato", icona: "🤕", colore: COLORS.red };
+  if (stato === "non_disponibile") return { label: "Non disponibile", icona: "🚫", colore: COLORS.chalkDim };
+  return null; // "disponibile" non mostra etichetta piccola (usata solo nelle tessere compatte)
+}
+
+// Se lo stato ha una scadenza già passata, il giocatore torna disponibile
+// automaticamente, senza bisogno che nessuno lo cambi a mano.
+function statoEffettivoGiocatore(p) {
+  const stato = p?.stato_giocatore || "disponibile";
+  if (stato !== "disponibile" && p?.stato_giocatore_scadenza) {
+    const oggi = new Date();
+    oggi.setHours(0, 0, 0, 0);
+    const scadenza = new Date(p.stato_giocatore_scadenza);
+    if (oggi > scadenza) return "disponibile";
+  }
+  return stato;
+}
+
+function statoGiocatoreStamp(stato, scadenza) {
+  const dataBreve = scadenza
+    ? new Date(scadenza).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" })
+    : null;
+  if (stato === "infortunato") return { label: "Infortunato", colore: COLORS.red, dataBreve };
+  if (stato === "non_disponibile") return { label: "Non disponibile", colore: "#FFA726", dataBreve };
+  return { label: "Disponibile", colore: "#4dc3ff", dataBreve: null }; // il timbro sulla foto si mostra sempre, anche per "disponibile"
+}
+
 function nomeById(players, id, rimossi = []) {
   if (rimossi.includes(id) || rimossi.includes(String(id))) return "Giocatore rimosso";
   return players.find((p) => p.id === id)?.name || "—";
@@ -408,41 +436,64 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true }) {
           </div>
         </div>
 
-        {/* Foto con anello luminoso */}
-        <div
-          style={{
-            width: 74,
-            height: 74,
-            borderRadius: "50%",
-            margin: "8px auto 6px",
-            padding: 3,
-            background: `conic-gradient(from 180deg, ${COLORS.floodlight}, #4dd0e1, ${COLORS.floodlight})`,
-            boxShadow: "0 0 10px rgba(255,200,87,0.3)",
-          }}
-        >
+        {/* Foto con anello luminoso e timbro stato */}
+        <div style={{ position: "relative", width: 74, margin: "8px auto 6px" }}>
           <div
             style={{
-              width: "100%",
-              height: "100%",
+              width: 74,
+              height: 74,
               borderRadius: "50%",
-              background: p.foto_url ? "transparent" : p.colore,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontFamily: "Barlow Condensed, sans-serif",
-              fontWeight: 700,
-              fontSize: 24,
-              color: COLORS.chalk,
-              border: `2px solid ${COLORS.pitchDark}`,
-              overflow: "hidden",
+              padding: 3,
+              background: `conic-gradient(from 180deg, ${COLORS.floodlight}, #4dd0e1, ${COLORS.floodlight})`,
+              boxShadow: "0 0 10px rgba(255,200,87,0.3)",
             }}
           >
-            {p.foto_url ? (
-              <img src={p.foto_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-            ) : (
-              p.initials
-            )}
+            <div
+              style={{
+                width: "100%",
+                height: "100%",
+                borderRadius: "50%",
+                background: p.foto_url ? "transparent" : p.colore,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontFamily: "Barlow Condensed, sans-serif",
+                fontWeight: 700,
+                fontSize: 24,
+                color: COLORS.chalk,
+                border: `2px solid ${COLORS.pitchDark}`,
+                overflow: "hidden",
+              }}
+            >
+              {p.foto_url ? (
+                <img src={p.foto_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                p.initials
+              )}
+            </div>
           </div>
+          {(() => {
+            const timbro = statoGiocatoreStamp(statoEffettivoGiocatore(p), p.stato_giocatore_scadenza);
+            return (
+              <div
+                style={{
+                  position: "absolute", bottom: 6, right: -16, transform: "rotate(-16deg)",
+                  border: `2px solid ${timbro.colore}`,
+                  color: timbro.colore,
+                  background: "rgba(15,46,29,0.6)",
+                  borderRadius: 4, padding: "1px 6px",
+                  fontFamily: "Barlow Condensed, sans-serif", fontWeight: 800, fontSize: 7.5,
+                  letterSpacing: 0.4, textTransform: "uppercase", whiteSpace: "nowrap",
+                  textAlign: "center", lineHeight: 1.25,
+                }}
+              >
+                {timbro.label}
+                {timbro.dataBreve && (
+                  <div style={{ fontSize: 6, letterSpacing: 0.2, fontWeight: 700 }}>fino al {timbro.dataBreve}</div>
+                )}
+              </div>
+            );
+          })()}
         </div>
 
         <div
@@ -991,8 +1042,14 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
     match && [...match.squadraBianchi, ...match.squadraNeri].includes(currentPlayerId) && !match.buche.includes(currentPlayerId);
 
   // I voti si chiudono 2 giorni dopo la partita
-  const scadenzaVoti = match ? new Date(`${match.data}T${match.ora || "00:00"}:00`) : null;
-  if (scadenzaVoti) scadenzaVoti.setDate(scadenzaVoti.getDate() + 2);
+  const scadenzaVoti = (() => {
+    if (!match) return null;
+    const [ore, minuti] = (match.ora || "00:00").split(":").map((n) => parseInt(n, 10) || 0);
+    const d = new Date(match.data);
+    d.setHours(ore, minuti, 0, 0);
+    d.setDate(d.getDate() + 2);
+    return d;
+  })();
   const votazioniChiuse = scadenzaVoti ? new Date() > scadenzaVoti : false;
   const scadenzaTesto = scadenzaVoti
     ? scadenzaVoti.toLocaleDateString("it-IT", { day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" })
@@ -1036,27 +1093,24 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
 
   const SOGLIA_SCARTO = 2;
 
-  useEffect(() => {
-    let annullato = false;
-    async function carica() {
-      if (!match) {
-        setCaricato(true);
-        return;
-      }
-      const { data } = await supabase.from("votes").select("votante_id, votato_id, voto").eq("match_id", match.id);
-      if (annullato) return;
-      setVotiEsistenti(data || []);
-      const gia = {};
-      (data || []).forEach((v) => {
-        if (v.votante_id === currentPlayerId) gia[v.votato_id] = true;
-      });
-      setInviati(gia);
+  const caricaVotiEsistenti = async () => {
+    if (!match) {
       setCaricato(true);
+      return;
     }
-    carica();
-    return () => {
-      annullato = true;
-    };
+    const { data } = await supabase.from("votes").select("votante_id, votato_id, voto").eq("match_id", match.id);
+    setVotiEsistenti(data || []);
+    const gia = {};
+    (data || []).forEach((v) => {
+      if (v.votante_id === currentPlayerId) gia[v.votato_id] = true;
+    });
+    setInviati(gia);
+    setCaricato(true);
+  };
+
+  useEffect(() => {
+    caricaVotiEsistenti();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [match?.id, currentPlayerId]);
 
   const consensoPer = (playerId) => {
@@ -1078,6 +1132,7 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
   const invia = async (playerId, val) => {
     setInvioInCorso((s) => ({ ...s, [playerId]: true }));
     await onVota(match.id, playerId, val);
+    await caricaVotiEsistenti();
     setInvioInCorso((s) => ({ ...s, [playerId]: false }));
     setInviati((s) => ({ ...s, [playerId]: true }));
     setInModifica((s) => ({ ...s, [playerId]: false }));
@@ -2088,20 +2143,44 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
           const sfondo =
             stato === "bianchi" ? COLORS.bianchi : stato === "neri" ? "#111418" : "rgba(255,255,255,0.04)";
           const testo = stato === "bianchi" ? COLORS.pitchDark : COLORS.chalk;
+          const bordoSquadra = stato === "bianchi" ? COLORS.bianchi : stato === "neri" ? "#000000" : "rgba(255,255,255,0.15)";
+          const info = statoGiocatoreInfo(statoEffettivoGiocatore(p));
           return (
             <button
               key={p.id}
               onClick={() => toggle(p.id)}
               className="figurina-hover"
               style={{
+                position: "relative",
                 display: "flex", flexDirection: "column", alignItems: "center", gap: 3,
-                padding: "6px 3px", borderRadius: 10, cursor: "pointer",
+                padding: "8px 3px 6px", borderRadius: 10, cursor: "pointer",
                 background: sfondo,
-                border: `2px solid rgba(255,255,255,0.15)`,
+                border: `2px solid ${bordoSquadra}`,
+                boxShadow: stato === "neri" ? "0 0 0 2px rgba(255,255,255,0.5)" : "none",
                 opacity: stato === "escluso" ? 0.55 : 1,
               }}
             >
-              <MiniAvatar p={p} size={30} />
+              {info && (
+                <span
+                  title={info.label}
+                  style={{
+                    position: "absolute", top: -6, right: -6, fontSize: 13,
+                    background: COLORS.pitchDark, borderRadius: "50%", width: 18, height: 18,
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    border: `1.5px solid ${info.colore}`,
+                  }}
+                >
+                  {info.icona}
+                </span>
+              )}
+              <div
+                style={{
+                  padding: 2, borderRadius: "50%",
+                  background: `conic-gradient(from 180deg, ${COLORS.floodlight}, #4dd0e1, ${COLORS.floodlight})`,
+                }}
+              >
+                <MiniAvatar p={p} size={28} />
+              </div>
               <span
                 style={{
                   fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 9.5, color: testo,
@@ -2185,7 +2264,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
 /* ---------------------------------------------------------
    PANNELLO ADMIN
 --------------------------------------------------------- */
-function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiungiGiocatore, richiesteRegistrazione = [], onApprovaRegistrazione, onRifiutaRegistrazione, onPromuoviRuolo, onModificaGiocatore, onEliminaGiocatoreOspite, onUnisciGiocatori }) {
+function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiungiGiocatore, richiesteRegistrazione = [], onApprovaRegistrazione, onRifiutaRegistrazione, onPromuoviRuolo, onModificaGiocatore, onEliminaGiocatoreOspite, onUnisciGiocatori, slackWebhookUrl = "", onSalvaSlackWebhook }) {
   const roleOptions = ["organizer", "allenatore", "player"];
   const roleLabel = { organizer: "Organizzatore", allenatore: "Allenatore", player: "Giocatore" };
   const roleColor = { organizer: COLORS.floodlight, allenatore: "#7EC8E3", player: COLORS.green };
@@ -2204,6 +2283,10 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
   const [erroreApprovazione, setErroreApprovazione] = useState({});
   const [unioneInCorso, setUnioneInCorso] = useState(false);
   const [erroreUnione, setErroreUnione] = useState("");
+  const [slackInput, setSlackInput] = useState(slackWebhookUrl);
+  const [slackSalvataggio, setSlackSalvataggio] = useState(false);
+  const [slackSalvato, setSlackSalvato] = useState(false);
+  const [slackErrore, setSlackErrore] = useState("");
 
   const ospitiDisponibili = players.filter((p) => p.ospite);
 
@@ -2755,6 +2838,8 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
   const [nome, setNome] = useState(myProfile?.name || "");
   const [soprannome, setSoprannome] = useState(myProfile?.soprannome || "");
   const [ruolo, setRuolo] = useState(myProfile?.ruolo_campo || "Centrocampo");
+  const [statoGiocatore, setStatoGiocatore] = useState(myProfile?.stato_giocatore || "disponibile");
+  const [scadenzaStato, setScadenzaStato] = useState(myProfile?.stato_giocatore_scadenza || "");
   const [email, setEmail] = useState(session?.user?.email || "");
   const [fotoFile, setFotoFile] = useState(null);
   const [anteprimaFoto, setAnteprimaFoto] = useState(myProfile?.foto_url || null);
@@ -2766,6 +2851,11 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
   const [errore, setErrore] = useState("");
 
   const ruoliCampo = ["Portiere", "Difensore", "Esterno Destro", "Esterno Sinistro", "Centrocampo", "Attaccante"];
+  const statiGiocatore = [
+    { id: "disponibile", label: "✅ Disponibile", colore: COLORS.green },
+    { id: "infortunato", label: "🤕 Infortunato", colore: COLORS.red },
+    { id: "non_disponibile", label: "🚫 Non disponibile", colore: COLORS.chalkDim },
+  ];
 
   const scegliFoto = (e) => {
     const file = e.target.files?.[0];
@@ -2778,7 +2868,7 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
     setErrore("");
     setSalvataggioInCorso(true);
     try {
-      await onSalvaProfilo({ nome, soprannome, ruolo, fotoFile });
+      await onSalvaProfilo({ nome, soprannome, ruolo, fotoFile, statoGiocatore, scadenzaStato: statoGiocatore === "disponibile" ? null : scadenzaStato || null });
       setSalvato(true);
       setFotoFile(null);
     } catch (e) {
@@ -2878,6 +2968,47 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
                 <option key={r} value={r} style={{ background: COLORS.navy }}>{r}</option>
               ))}
             </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: COLORS.chalkDim, marginBottom: 4 }}>Disponibilità</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {statiGiocatore.map((s) => {
+                const attivo = statoGiocatore === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => setStatoGiocatore(s.id)}
+                    style={{
+                      padding: "7px 10px", borderRadius: 7, cursor: "pointer",
+                      border: `1px solid ${attivo ? s.colore : "rgba(255,255,255,0.15)"}`,
+                      background: attivo ? s.colore : "transparent",
+                      color: attivo ? COLORS.pitchDark : COLORS.chalkDim,
+                      fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12,
+                    }}
+                  >
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+            {statoGiocatore !== "disponibile" && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, color: COLORS.chalkDim, marginBottom: 4 }}>Fino a quando? (facoltativo)</div>
+                <input
+                  type="date"
+                  value={scadenzaStato}
+                  onChange={(e) => setScadenzaStato(e.target.value)}
+                  style={{
+                    padding: "8px 10px", borderRadius: 7,
+                    border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+                    color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
+                  }}
+                />
+                <div style={{ fontSize: 10.5, color: COLORS.chalkDim, marginTop: 4 }}>
+                  Dopo questa data tornerai automaticamente "Disponibile". Lascia vuoto se non lo sai ancora.
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -3502,6 +3633,7 @@ export default function CalcettoApp() {
   const [voti, setVoti] = useState([]);
   const [votiMvp, setVotiMvp] = useState([]);
   const [messaggi, setMessaggi] = useState([]);
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState("");
   const [ultimoVistoIl, setUltimoVistoIl] = useState(null);
   const [datiCaricati, setDatiCaricati] = useState(false);
   const [modalitaRecuperoPassword, setModalitaRecuperoPassword] = useState(false);
@@ -3613,12 +3745,17 @@ export default function CalcettoApp() {
     setMessaggi(data || []);
   };
 
+  const caricaImpostazioni = async () => {
+    const { data } = await supabase.from("impostazioni").select("slack_webhook_url").eq("id", 1).maybeSingle();
+    setSlackWebhookUrl(data?.slack_webhook_url || "");
+  };
+
   // Quando l'accesso è approvato, carica tutti i dati reali
   useEffect(() => {
     if (profileStatus !== "approvato") return;
     let annullato = false;
     (async () => {
-      await Promise.all([caricaGiocatori(), caricaPartite(), caricaRichiesteRegistrazione(), caricaRichiesteCancellazione(), caricaVoti(), caricaVotiMvp(), caricaMessaggi()]);
+      await Promise.all([caricaGiocatori(), caricaPartite(), caricaRichiesteRegistrazione(), caricaRichiesteCancellazione(), caricaVoti(), caricaVotiMvp(), caricaMessaggi(), caricaImpostazioni()]);
       if (!annullato) {
         setDatiCaricati(true);
         setUltimoVistoIl(new Date().toISOString());
@@ -3649,10 +3786,26 @@ export default function CalcettoApp() {
   const inviaMessaggio = async (testo) => {
     if (!currentPlayerId) return;
     await supabase.from("messaggi").insert({ autore_id: currentPlayerId, testo });
+
+    // Inoltra anche su Slack, se configurato — non blocca l'invio se fallisce
+    if (slackWebhookUrl) {
+      const nomeAutore = playersConGol.find((p) => p.id === currentPlayerId)?.name || "Qualcuno";
+      fetch(slackWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: `⚽ *${nomeAutore}* (Calcetto Totale): ${testo}` }),
+      }).catch(() => {});
+    }
   };
 
   const eliminaMessaggio = async (id) => {
     await supabase.from("messaggi").delete().eq("id", id);
+  };
+
+  const salvaSlackWebhook = async (url) => {
+    const { error } = await supabase.from("impostazioni").update({ slack_webhook_url: url || null }).eq("id", 1);
+    if (error) throw error;
+    setSlackWebhookUrl(url);
   };
 
   const PALETTE_OSPITI = ["#2D6A4F", "#1B4332", "#16233D", "#E5533C", "#4C7A5C"];
@@ -3740,7 +3893,7 @@ export default function CalcettoApp() {
     await Promise.all([caricaGiocatori(), caricaPartite(), caricaVoti()]);
   };
 
-  const salvaProfilo = async ({ nome, soprannome, ruolo, fotoFile }) => {
+  const salvaProfilo = async ({ nome, soprannome, ruolo, fotoFile, statoGiocatore, scadenzaStato }) => {
     if (!myProfile) return;
     let foto_url = myProfile.foto_url;
     if (fotoFile) {
@@ -3754,7 +3907,15 @@ export default function CalcettoApp() {
     const initials = nome.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
     const { error } = await supabase
       .from("profiles")
-      .update({ name: nome.trim(), soprannome: soprannome.trim() || null, ruolo_campo: ruolo, initials, foto_url })
+      .update({
+        name: nome.trim(),
+        soprannome: soprannome.trim() || null,
+        ruolo_campo: ruolo,
+        initials,
+        foto_url,
+        stato_giocatore: statoGiocatore,
+        stato_giocatore_scadenza: scadenzaStato || null,
+      })
       .eq("id", myProfile.id);
     if (error) throw error;
     await Promise.all([caricaGiocatori(), ricaricaMioProfilo()]);
@@ -3877,24 +4038,24 @@ export default function CalcettoApp() {
   const tabsByRole = {
     player: [
       { id: "dashboard", label: "Dashboard" },
-      { id: "squadra", label: "Squadra" },
-      { id: "storico", label: "Storico" },
+      { id: "squadra", label: "Giocatori" },
+      { id: "storico", label: "Partite" },
       { id: "voti", label: "Vota partita" },
     ],
     organizer: [
       { id: "dashboard", label: "Dashboard" },
       { id: "formazione", label: "Crea Partita" },
       { id: "risultato", label: "Risultato" },
-      { id: "permessi", label: "Giocatori" },
-      { id: "squadra", label: "Squadra" },
-      { id: "storico", label: "Storico" },
+      { id: "permessi", label: "Permessi" },
+      { id: "squadra", label: "Giocatori" },
+      { id: "storico", label: "Partite" },
       { id: "voti", label: "Vota partita" },
     ],
     coach: [
       { id: "dashboard", label: "Dashboard" },
       { id: "formazione", label: "Crea Partita" },
-      { id: "squadra", label: "Squadra" },
-      { id: "storico", label: "Storico" },
+      { id: "squadra", label: "Giocatori" },
+      { id: "storico", label: "Partite" },
       { id: "voti", label: "Vota partita" },
     ],
   };
@@ -3924,6 +4085,25 @@ export default function CalcettoApp() {
     if (!ultimoVistoIl) return 0;
     return messaggi.filter((m) => new Date(m.creato_il) > new Date(ultimoVistoIl) && m.autore_id !== currentPlayerId).length;
   }, [messaggi, ultimoVistoIl, currentPlayerId]);
+
+  // Chiede il permesso di mostrare notifiche una sola volta: su iOS serve
+  // per poter mostrare il numero sull'icona dell'app (schermata home).
+  useEffect(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
+  // Aggiorna il numerino sull'icona dell'app quando ci sono messaggi non letti
+  // (funziona solo per chi ha aggiunto l'app alla schermata home).
+  useEffect(() => {
+    if (!("setAppBadge" in navigator)) return;
+    if (messaggiNonLetti > 0) {
+      navigator.setAppBadge(messaggiNonLetti).catch(() => {});
+    } else {
+      navigator.clearAppBadge().catch(() => {});
+    }
+  }, [messaggiNonLetti]);
 
   useEffect(() => {
     if (activeTab === "chat" && messaggi.length > 0) {
@@ -4137,6 +4317,8 @@ export default function CalcettoApp() {
           onModificaGiocatore={modificaGiocatore}
           onEliminaGiocatoreOspite={eliminaGiocatoreOspite}
           onUnisciGiocatori={unisciGiocatori}
+          slackWebhookUrl={slackWebhookUrl}
+          onSalvaSlackWebhook={salvaSlackWebhook}
           richiesteRegistrazione={richiesteRegistrazione}
           onApprovaRegistrazione={approvaRegistrazione}
           onRifiutaRegistrazione={rifiutaRegistrazione}

@@ -1861,35 +1861,32 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
         img.src = url;
       });
 
-    const gruppiRuoloImg = [
-      { titolo: "ATTACCO", ruoli: ["Attaccante"] },
-      { titolo: "CENTROCAMPO", ruoli: ["Centrocampo"] },
-      { titolo: "ESTERNI", ruoli: ["Esterno Destro", "Esterno Sinistro"] },
-      { titolo: "DIFESA", ruoli: ["Difensore"] },
-      { titolo: "PORTIERE", ruoli: ["Portiere"] },
-    ];
-
-    const raggruppaPerRuoloImg = (lista) => {
-      const assegnati = new Set();
-      const bande = gruppiRuoloImg
-        .map((g) => {
-          const l = lista.filter((p) => g.ruoli.includes(p.ruolo_campo));
-          l.forEach((p) => assegnati.add(p.id));
-          return { ...g, lista: l };
-        })
-        .filter((g) => g.lista.length > 0);
-      const senzaRuolo = lista.filter((p) => !assegnati.has(p.id));
-      if (senzaRuolo.length > 0) bande.push({ titolo: "ALTRI", ruoli: [], lista: senzaRuolo });
-      return bande;
+    const ORDINE_RUOLI_IMG = ["Portiere", "Difensore", "Esterno Destro", "Esterno Sinistro", "Centrocampo", "Attaccante"];
+    const SIGLA_RUOLO_IMG = {
+      Portiere: "GK", Difensore: "DIF", "Esterno Destro": "ED", "Esterno Sinistro": "ES",
+      Centrocampo: "CC", Attaccante: "ATT",
     };
 
-    const ALTEZZA_HEADER = 64;
-    const ALTEZZA_RIGA = 180;
-    const ALTEZZA_PORTA = 70;
+    // 6 posizioni fisse "sparse" nel pannello (frazioni di larghezza/altezza),
+    // il portiere sempre in basso a sinistra, gli altri a salire verso l'alto.
+    const SLOT_IMG = [
+      { fx: 0.24, fy: 0.86 }, // portiere
+      { fx: 0.20, fy: 0.63 },
+      { fx: 0.58, fy: 0.70 },
+      { fx: 0.16, fy: 0.40 },
+      { fx: 0.62, fy: 0.44 },
+      { fx: 0.42, fy: 0.16 },
+    ];
 
-    const calcolaAltezzaPannello = (lista) => {
-      const bande = raggruppaPerRuoloImg(lista);
-      return ALTEZZA_HEADER + 20 + Math.max(bande.length, 1) * ALTEZZA_RIGA + ALTEZZA_PORTA;
+    const ALTEZZA_HEADER = 64;
+    const ALTEZZA_PANNELLO = 780;
+
+    const ordinaSquadra = (lista) => {
+      const portiere = lista.filter((p) => p.ruolo_campo === "Portiere");
+      const resto = lista
+        .filter((p) => p.ruolo_campo !== "Portiere")
+        .sort((a, b) => ORDINE_RUOLI_IMG.indexOf(a.ruolo_campo) - ORDINE_RUOLI_IMG.indexOf(b.ruolo_campo));
+      return [...portiere, ...resto].slice(0, 6);
     };
 
     const disegnaPannelloSquadra = (ctx, x, y, w, h, titolo, lista, immagini, chiaro) => {
@@ -1917,88 +1914,122 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
       const immaginePerId = {};
       lista.forEach((p, i) => { immaginePerId[p.id] = immagini[i]; });
 
+      const areaY = y + ALTEZZA_HEADER;
+      const areaH = h - ALTEZZA_HEADER;
       const raggio = 46;
-      const bande = raggruppaPerRuoloImg(lista);
-      let curY = y + ALTEZZA_HEADER + 20;
 
-      bande.forEach((banda) => {
-        // etichetta di zona
-        ctx.fillStyle = chiaro ? "rgba(15,46,29,0.5)" : "rgba(242,240,233,0.45)";
-        ctx.font = "bold 15px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(banda.titolo, x + w / 2, curY + 14);
-
-        const n = banda.lista.length;
-        const spaziatura = w / (n + 1);
-        banda.lista.forEach((p, i) => {
-          const cx = x + spaziatura * (i + 1);
-          const cy = curY + 34 + raggio;
-          const img = immaginePerId[p.id];
-
-          // anello dorato
-          ctx.beginPath();
-          ctx.arc(cx, cy, raggio + 4, 0, Math.PI * 2);
-          const grad = ctx.createLinearGradient(cx - raggio, cy - raggio, cx + raggio, cy + raggio);
-          grad.addColorStop(0, "#FFC857");
-          grad.addColorStop(1, "#8a6a1a");
-          ctx.fillStyle = grad;
-          ctx.fill();
-
-          // foto o iniziali
-          ctx.save();
-          ctx.beginPath();
-          ctx.arc(cx, cy, raggio, 0, Math.PI * 2);
-          ctx.closePath();
-          ctx.clip();
-          if (img) {
-            ctx.drawImage(img, cx - raggio, cy - raggio, raggio * 2, raggio * 2);
-          } else {
-            ctx.fillStyle = p.colore || "#2D6A4F";
-            ctx.fillRect(cx - raggio, cy - raggio, raggio * 2, raggio * 2);
-            ctx.fillStyle = "#F2F0E9";
-            ctx.font = "bold 28px sans-serif";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(p.initials || "", cx, cy + 2);
-            ctx.textBaseline = "alphabetic";
-          }
-          ctx.restore();
-
-          // nome (troncato se troppo lungo)
-          ctx.fillStyle = chiaro ? "#0F2E1D" : "#F2F0E9";
-          ctx.font = "20px sans-serif";
-          ctx.textAlign = "center";
-          let nome = p.name || "";
-          while (ctx.measureText(nome).width > spaziatura - 10 && nome.length > 3) {
-            nome = nome.slice(0, -1);
-          }
-          if (nome !== p.name) nome += "…";
-          ctx.fillText(nome, cx, cy + raggio + 26);
-        });
-
-        curY += ALTEZZA_RIGA;
-      });
-
-      // porta in fondo al pannello (sempre ancorata in basso)
-      const goalW = 130, goalH = 34;
-      const goalX = x + w / 2 - goalW / 2;
-      const goalY = y + h - goalH - 20;
+      // porta: rettangolo verticale con rete, sul lato destro del pannello
+      const goalW = 26, goalH = 130;
+      const goalX = x + w - 56;
+      const goalY = areaY + areaH * 0.42 - goalH / 2;
       ctx.strokeStyle = chiaro ? "rgba(15,46,29,0.6)" : "rgba(242,240,233,0.55)";
       ctx.lineWidth = 3;
       ctx.strokeRect(goalX, goalY, goalW, goalH);
       ctx.lineWidth = 1;
-      for (let gx = goalX + 12; gx < goalX + goalW; gx += 12) {
-        ctx.beginPath();
-        ctx.moveTo(gx, goalY);
-        ctx.lineTo(gx, goalY + goalH);
-        ctx.stroke();
-      }
-      for (let gy = goalY + 8; gy < goalY + goalH; gy += 8) {
+      for (let gy = goalY + 12; gy < goalY + goalH; gy += 12) {
         ctx.beginPath();
         ctx.moveTo(goalX, gy);
         ctx.lineTo(goalX + goalW, gy);
         ctx.stroke();
       }
+      for (let gx = goalX + 8; gx < goalX + goalW; gx += 8) {
+        ctx.beginPath();
+        ctx.moveTo(gx, goalY);
+        ctx.lineTo(gx, goalY + goalH);
+        ctx.stroke();
+      }
+
+      // "ATTACCO VERSO PORTA" — etichetta accanto alla porta
+      ctx.save();
+      ctx.translate(goalX - 18, areaY + areaH * 0.42);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillStyle = chiaro ? "rgba(15,46,29,0.45)" : "rgba(242,240,233,0.4)";
+      ctx.font = "bold 12px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText("ATTACCO", 0, -6);
+      ctx.fillText("VERSO PORTA", 0, 8);
+      ctx.restore();
+
+      const squadraOrdinata = ordinaSquadra(lista);
+      const goalCx = goalX + goalW / 2;
+      const goalCy = goalY + goalH / 2;
+
+      squadraOrdinata.forEach((p, i) => {
+        const slot = SLOT_IMG[i];
+        const cx = x + w * slot.fx;
+        const cy = areaY + areaH * slot.fy;
+        const img = immaginePerId[p.id];
+
+        // freccia verso la porta
+        ctx.save();
+        const ang = Math.atan2(goalCy - cy, goalCx - cx);
+        const startR = raggio + 10;
+        const ax = cx + Math.cos(ang) * startR;
+        const ay = cy + Math.sin(ang) * startR;
+        const alen = 34;
+        const bx = ax + Math.cos(ang) * alen;
+        const by = ay + Math.sin(ang) * alen;
+        ctx.strokeStyle = chiaro ? "rgba(15,46,29,0.35)" : "rgba(242,240,233,0.3)";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(ax, ay);
+        ctx.lineTo(bx, by);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(bx, by);
+        ctx.lineTo(bx - Math.cos(ang - 0.4) * 8, by - Math.sin(ang - 0.4) * 8);
+        ctx.lineTo(bx - Math.cos(ang + 0.4) * 8, by - Math.sin(ang + 0.4) * 8);
+        ctx.closePath();
+        ctx.fillStyle = chiaro ? "rgba(15,46,29,0.35)" : "rgba(242,240,233,0.3)";
+        ctx.fill();
+        ctx.restore();
+
+        // anello dorato
+        ctx.beginPath();
+        ctx.arc(cx, cy, raggio + 4, 0, Math.PI * 2);
+        const grad = ctx.createLinearGradient(cx - raggio, cy - raggio, cx + raggio, cy + raggio);
+        grad.addColorStop(0, "#FFC857");
+        grad.addColorStop(1, "#8a6a1a");
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // foto o iniziali
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(cx, cy, raggio, 0, Math.PI * 2);
+        ctx.closePath();
+        ctx.clip();
+        if (img) {
+          ctx.drawImage(img, cx - raggio, cy - raggio, raggio * 2, raggio * 2);
+        } else {
+          ctx.fillStyle = p.colore || "#2D6A4F";
+          ctx.fillRect(cx - raggio, cy - raggio, raggio * 2, raggio * 2);
+          ctx.fillStyle = "#F2F0E9";
+          ctx.font = "bold 28px sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText(p.initials || "", cx, cy + 2);
+          ctx.textBaseline = "alphabetic";
+        }
+        ctx.restore();
+
+        // etichetta ruolo
+        ctx.fillStyle = chiaro ? "rgba(15,46,29,0.55)" : "rgba(242,240,233,0.5)";
+        ctx.font = "bold 12px sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(SIGLA_RUOLO_IMG[p.ruolo_campo] || "", cx, cy - raggio - 12);
+
+        // nome (troncato se troppo lungo)
+        ctx.fillStyle = chiaro ? "#0F2E1D" : "#F2F0E9";
+        ctx.font = "20px sans-serif";
+        ctx.textAlign = "center";
+        let nome = p.name || "";
+        while (ctx.measureText(nome).width > w / 3.2 && nome.length > 3) {
+          nome = nome.slice(0, -1);
+        }
+        if (nome !== p.name) nome += "…";
+        ctx.fillText(nome, cx, cy + raggio + 24);
+      });
     };
 
     const disegna = async () => {
@@ -2011,7 +2042,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
       const ctx = canvas.getContext("2d");
       const W = 1080;
       const panelY = 260;
-      const panelH = Math.max(calcolaAltezzaPannello(listaBianchi), calcolaAltezzaPannello(listaNeri), 400);
+      const panelH = ALTEZZA_PANNELLO;
       const H = panelY + panelH + 90;
       canvas.width = W;
       canvas.height = H;

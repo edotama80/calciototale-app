@@ -750,6 +750,19 @@ function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore,
         )}
       </div>
 
+      {sonoOrganizzatore && match && (match.squadraBianchi.length > 0 || match.squadraNeri.length > 0) && (
+        <button
+          onClick={() => setDettaglioFormazioneAperto(true)}
+          style={{
+            display: "flex", alignItems: "center", gap: 6, marginBottom: 24,
+            padding: "8px 14px", borderRadius: 8, border: `1px solid rgba(255,255,255,0.15)`, cursor: "pointer",
+            background: "transparent", color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12.5,
+          }}
+        >
+          📷 Vedi formazione
+        </button>
+      )}
+
       {match && miaSquadra && !sonoOrganizzatore && (() => {
         const miaRisposta = conferme.find((c) => c.match_id === match.id && c.player_id === currentPlayerId);
         if (miaRisposta?.conferma === true) {
@@ -4456,11 +4469,11 @@ export default function CalcettoApp() {
     ],
   };
 
-  const [activeTab, setActiveTab] = useState(() => localStorage.getItem("calcetto_activeTab") || "dashboard");
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem("calcetto_activeTab") || "dashboard");
   const [confermaEsci, setConfermaEsci] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem("calcetto_activeTab", activeTab);
+    sessionStorage.setItem("calcetto_activeTab", activeTab);
   }, [activeTab]);
 
   useEffect(() => {
@@ -4542,7 +4555,7 @@ export default function CalcettoApp() {
         icona="⏳"
         titolo="Un momento…"
         testo="Stiamo completando la tua registrazione. Riprova tra qualche secondo ricaricando la pagina — se il problema persiste, contatta l'organizzatore."
-        onEsci={() => { localStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
+        onEsci={() => { sessionStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
       />
     );
   }
@@ -4554,7 +4567,7 @@ export default function CalcettoApp() {
         titolo="Registrazione effettuata correttamente"
         testo="Attendi che l'organizzatore autorizzi il tuo account. Verrai avvisato appena attivo."
         labelEsci="Esci e torna al login"
-        onEsci={() => { localStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
+        onEsci={() => { sessionStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
       />
     );
   }
@@ -4565,7 +4578,7 @@ export default function CalcettoApp() {
         icona="✕"
         titolo="Richiesta non approvata"
         testo="L'organizzatore non ha approvato questa registrazione. Contattalo direttamente se pensi sia un errore."
-        onEsci={() => { localStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
+        onEsci={() => { sessionStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
       />
     );
   }
@@ -4649,7 +4662,7 @@ export default function CalcettoApp() {
           <button
             onClick={() => {
               if (confermaEsci) {
-                localStorage.removeItem("calcetto_activeTab");
+                sessionStorage.removeItem("calcetto_activeTab");
                 supabase.auth.signOut();
               } else {
                 setConfermaEsci(true);

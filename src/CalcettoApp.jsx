@@ -364,6 +364,7 @@ function SquadraBadge({ tipo }) {
 --------------------------------------------------------- */
 function PlayerCard({ p, onClick, selected, larghezzaFissa = true, squadra = null, atenuata = false, compatta = false }) {
   const chiaro = squadra === "bianchi";
+  const nero = squadra === "neri";
   const testoPrincipale = chiaro ? COLORS.pitchDark : COLORS.chalk;
   const testoSecondario = chiaro ? "rgba(15,46,29,0.65)" : COLORS.chalkDim;
   const soprannomeColore = chiaro ? "#8a6a1a" : COLORS.floodlight;
@@ -375,6 +376,12 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true, squadra = nul
       repeating-linear-gradient(135deg, rgba(0,0,0,0.025) 0px, rgba(0,0,0,0.025) 2px, transparent 2px, transparent 6px),
       radial-gradient(circle at 30% 0%, rgba(255,200,87,0.28) 0%, transparent 55%),
       linear-gradient(165deg, #F2F0E9 0%, #d9d4c6 100%)
+    `
+    : nero
+    ? `
+      repeating-linear-gradient(135deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 2px, transparent 2px, transparent 6px),
+      radial-gradient(circle at 30% 0%, rgba(255,255,255,0.06) 0%, transparent 55%),
+      linear-gradient(165deg, #0a0a0a 0%, #000000 100%)
     `
     : `
       repeating-linear-gradient(135deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 2px, transparent 2px, transparent 6px),
@@ -1854,6 +1861,37 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
         img.src = url;
       });
 
+    const gruppiRuoloImg = [
+      { titolo: "ATTACCO", ruoli: ["Attaccante"] },
+      { titolo: "CENTROCAMPO", ruoli: ["Centrocampo"] },
+      { titolo: "ESTERNI", ruoli: ["Esterno Destro", "Esterno Sinistro"] },
+      { titolo: "DIFESA", ruoli: ["Difensore"] },
+      { titolo: "PORTIERE", ruoli: ["Portiere"] },
+    ];
+
+    const raggruppaPerRuoloImg = (lista) => {
+      const assegnati = new Set();
+      const bande = gruppiRuoloImg
+        .map((g) => {
+          const l = lista.filter((p) => g.ruoli.includes(p.ruolo_campo));
+          l.forEach((p) => assegnati.add(p.id));
+          return { ...g, lista: l };
+        })
+        .filter((g) => g.lista.length > 0);
+      const senzaRuolo = lista.filter((p) => !assegnati.has(p.id));
+      if (senzaRuolo.length > 0) bande.push({ titolo: "ALTRI", ruoli: [], lista: senzaRuolo });
+      return bande;
+    };
+
+    const ALTEZZA_HEADER = 64;
+    const ALTEZZA_RIGA = 180;
+    const ALTEZZA_PORTA = 70;
+
+    const calcolaAltezzaPannello = (lista) => {
+      const bande = raggruppaPerRuoloImg(lista);
+      return ALTEZZA_HEADER + 20 + Math.max(bande.length, 1) * ALTEZZA_RIGA + ALTEZZA_PORTA;
+    };
+
     const disegnaPannelloSquadra = (ctx, x, y, w, h, titolo, lista, immagini, chiaro) => {
       // sfondo e cornice del pannello
       ctx.fillStyle = "rgba(5,12,7,0.55)";
@@ -1865,69 +1903,102 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
       ctx.stroke();
 
       // barra titolo
-      const headerH = 64;
       ctx.save();
       roundRect(ctx, x, y, w, h, 16);
       ctx.clip();
       ctx.fillStyle = chiaro ? "#F2F0E9" : "#111418";
-      ctx.fillRect(x, y, w, headerH);
+      ctx.fillRect(x, y, w, ALTEZZA_HEADER);
       ctx.restore();
       ctx.fillStyle = chiaro ? "#0F2E1D" : "#F2F0E9";
       ctx.font = "bold 30px sans-serif";
       ctx.textAlign = "center";
       ctx.fillText(titolo, x + w / 2, y + 42);
 
-      // griglia giocatori (2 colonne x 3 righe)
-      const cols = 2;
-      const cellW = w / cols;
-      const cellH = 210;
-      const raggio = 52;
-      lista.forEach((p, i) => {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        const cx = x + cellW * col + cellW / 2;
-        const cy = y + headerH + 45 + row * cellH + raggio;
+      const immaginePerId = {};
+      lista.forEach((p, i) => { immaginePerId[p.id] = immagini[i]; });
 
-        // anello dorato
-        ctx.beginPath();
-        ctx.arc(cx, cy, raggio + 4, 0, Math.PI * 2);
-        const grad = ctx.createLinearGradient(cx - raggio, cy - raggio, cx + raggio, cy + raggio);
-        grad.addColorStop(0, "#FFC857");
-        grad.addColorStop(1, "#8a6a1a");
-        ctx.fillStyle = grad;
-        ctx.fill();
+      const raggio = 46;
+      const bande = raggruppaPerRuoloImg(lista);
+      let curY = y + ALTEZZA_HEADER + 20;
 
-        // foto o iniziali
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(cx, cy, raggio, 0, Math.PI * 2);
-        ctx.closePath();
-        ctx.clip();
-        if (immagini[i]) {
-          ctx.drawImage(immagini[i], cx - raggio, cy - raggio, raggio * 2, raggio * 2);
-        } else {
-          ctx.fillStyle = p.colore || "#2D6A4F";
-          ctx.fillRect(cx - raggio, cy - raggio, raggio * 2, raggio * 2);
-          ctx.fillStyle = "#F2F0E9";
-          ctx.font = "bold 32px sans-serif";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(p.initials || "", cx, cy + 2);
-          ctx.textBaseline = "alphabetic";
-        }
-        ctx.restore();
-
-        // nome (troncato se troppo lungo)
-        ctx.fillStyle = "#F2F0E9";
-        ctx.font = "23px sans-serif";
+      bande.forEach((banda) => {
+        // etichetta di zona
+        ctx.fillStyle = chiaro ? "rgba(15,46,29,0.5)" : "rgba(242,240,233,0.45)";
+        ctx.font = "bold 15px sans-serif";
         ctx.textAlign = "center";
-        let nome = p.name || "";
-        while (ctx.measureText(nome).width > cellW - 24 && nome.length > 3) {
-          nome = nome.slice(0, -1);
-        }
-        if (nome !== p.name) nome += "…";
-        ctx.fillText(nome, cx, cy + raggio + 32);
+        ctx.fillText(banda.titolo, x + w / 2, curY + 14);
+
+        const n = banda.lista.length;
+        const spaziatura = w / (n + 1);
+        banda.lista.forEach((p, i) => {
+          const cx = x + spaziatura * (i + 1);
+          const cy = curY + 34 + raggio;
+          const img = immaginePerId[p.id];
+
+          // anello dorato
+          ctx.beginPath();
+          ctx.arc(cx, cy, raggio + 4, 0, Math.PI * 2);
+          const grad = ctx.createLinearGradient(cx - raggio, cy - raggio, cx + raggio, cy + raggio);
+          grad.addColorStop(0, "#FFC857");
+          grad.addColorStop(1, "#8a6a1a");
+          ctx.fillStyle = grad;
+          ctx.fill();
+
+          // foto o iniziali
+          ctx.save();
+          ctx.beginPath();
+          ctx.arc(cx, cy, raggio, 0, Math.PI * 2);
+          ctx.closePath();
+          ctx.clip();
+          if (img) {
+            ctx.drawImage(img, cx - raggio, cy - raggio, raggio * 2, raggio * 2);
+          } else {
+            ctx.fillStyle = p.colore || "#2D6A4F";
+            ctx.fillRect(cx - raggio, cy - raggio, raggio * 2, raggio * 2);
+            ctx.fillStyle = "#F2F0E9";
+            ctx.font = "bold 28px sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(p.initials || "", cx, cy + 2);
+            ctx.textBaseline = "alphabetic";
+          }
+          ctx.restore();
+
+          // nome (troncato se troppo lungo)
+          ctx.fillStyle = chiaro ? "#0F2E1D" : "#F2F0E9";
+          ctx.font = "20px sans-serif";
+          ctx.textAlign = "center";
+          let nome = p.name || "";
+          while (ctx.measureText(nome).width > spaziatura - 10 && nome.length > 3) {
+            nome = nome.slice(0, -1);
+          }
+          if (nome !== p.name) nome += "…";
+          ctx.fillText(nome, cx, cy + raggio + 26);
+        });
+
+        curY += ALTEZZA_RIGA;
       });
+
+      // porta in fondo al pannello (sempre ancorata in basso)
+      const goalW = 130, goalH = 34;
+      const goalX = x + w / 2 - goalW / 2;
+      const goalY = y + h - goalH - 20;
+      ctx.strokeStyle = chiaro ? "rgba(15,46,29,0.6)" : "rgba(242,240,233,0.55)";
+      ctx.lineWidth = 3;
+      ctx.strokeRect(goalX, goalY, goalW, goalH);
+      ctx.lineWidth = 1;
+      for (let gx = goalX + 12; gx < goalX + goalW; gx += 12) {
+        ctx.beginPath();
+        ctx.moveTo(gx, goalY);
+        ctx.lineTo(gx, goalY + goalH);
+        ctx.stroke();
+      }
+      for (let gy = goalY + 8; gy < goalY + goalH; gy += 8) {
+        ctx.beginPath();
+        ctx.moveTo(goalX, gy);
+        ctx.lineTo(goalX + goalW, gy);
+        ctx.stroke();
+      }
     };
 
     const disegna = async () => {
@@ -1940,7 +2011,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
       const ctx = canvas.getContext("2d");
       const W = 1080;
       const panelY = 260;
-      const panelH = 750; // 3 righe fisse, spazio per fino a 6 giocatori
+      const panelH = Math.max(calcolaAltezzaPannello(listaBianchi), calcolaAltezzaPannello(listaNeri), 400);
       const H = panelY + panelH + 90;
       canvas.width = W;
       canvas.height = H;
@@ -2240,24 +2311,72 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
         )}
       </div>
 
-      <div className="formazione-grid" style={{ marginBottom: 22 }}>
-        {players
-          .filter((p) => p.name.toLowerCase().includes(ricercaGiocatore.trim().toLowerCase()))
-          .map((p) => {
-            const stato = squadre[p.id] || "escluso";
-            return (
-              <PlayerCard
-                key={p.id}
-                p={p}
-                onClick={() => toggle(p.id)}
-                larghezzaFissa={false}
-                compatta
-                squadra={stato === "bianchi" ? "bianchi" : null}
-                atenuata={stato === "escluso"}
-              />
-            );
-          })}
-      </div>
+      {(() => {
+        const gruppiRuolo = [
+          { titolo: "🧤 Portiere", ruoli: ["Portiere"] },
+          { titolo: "🛡️ Difesa", ruoli: ["Difensore"] },
+          { titolo: "↔️ Esterni", ruoli: ["Esterno Destro", "Esterno Sinistro"] },
+          { titolo: "⚙️ Centrocampo", ruoli: ["Centrocampo"] },
+          { titolo: "⚔️ Attacco", ruoli: ["Attaccante"] },
+        ];
+        const filtrati = players.filter((p) => p.name.toLowerCase().includes(ricercaGiocatore.trim().toLowerCase()));
+        const assegnati = new Set();
+        const bande = gruppiRuolo
+          .map((g) => {
+            const lista = filtrati.filter((p) => g.ruoli.includes(p.ruolo_campo));
+            lista.forEach((p) => assegnati.add(p.id));
+            return { ...g, lista };
+          })
+          .filter((g) => g.lista.length > 0);
+        const senzaRuolo = filtrati.filter((p) => !assegnati.has(p.id));
+        if (senzaRuolo.length > 0) bande.push({ titolo: "Altri", ruoli: [], lista: senzaRuolo });
+
+        return (
+          <div
+            style={{
+              background: `repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 40px, transparent 40px, transparent 80px), linear-gradient(180deg, #1B4332 0%, #163a29 100%)`,
+              borderRadius: 16,
+              border: `1px solid rgba(255,255,255,0.1)`,
+              padding: "16px 12px",
+              marginBottom: 22,
+            }}
+          >
+            {bande.map((b, i) => (
+              <div key={b.titolo} style={{ marginBottom: i < bande.length - 1 ? 16 : 0 }}>
+                <div
+                  style={{
+                    fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 12.5, color: COLORS.chalk,
+                    textAlign: "center", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 8,
+                    opacity: 0.85,
+                  }}
+                >
+                  {b.titolo}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+                  {b.lista.map((p) => {
+                    const stato = squadre[p.id] || "escluso";
+                    return (
+                      <div key={p.id} style={{ width: 100 }}>
+                        <PlayerCard
+                          p={p}
+                          onClick={() => toggle(p.id)}
+                          larghezzaFissa={false}
+                          compatta
+                          squadra={stato === "bianchi" ? "bianchi" : stato === "neri" ? "neri" : null}
+                          atenuata={stato === "escluso"}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                {i < bande.length - 1 && (
+                  <div style={{ height: 1, background: "rgba(255,255,255,0.08)", marginTop: 16 }} />
+                )}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
       {ricercaGiocatore && players.filter((p) => p.name.toLowerCase().includes(ricercaGiocatore.trim().toLowerCase())).length === 0 && (
         <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 12.5, marginTop: -14, marginBottom: 22 }}>
           Nessun giocatore trovato per "{ricercaGiocatore}".

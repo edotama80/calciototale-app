@@ -1867,17 +1867,6 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
       Centrocampo: "CC", Attaccante: "ATT",
     };
 
-    // 6 posizioni fisse "sparse" nel pannello (frazioni di larghezza/altezza),
-    // il portiere sempre in basso a sinistra, gli altri a salire verso l'alto.
-    const SLOT_IMG = [
-      { fx: 0.24, fy: 0.86 }, // portiere
-      { fx: 0.20, fy: 0.63 },
-      { fx: 0.58, fy: 0.70 },
-      { fx: 0.16, fy: 0.40 },
-      { fx: 0.62, fy: 0.44 },
-      { fx: 0.42, fy: 0.16 },
-    ];
-
     const ALTEZZA_HEADER = 64;
     const ALTEZZA_PANNELLO = 780;
 
@@ -1887,6 +1876,21 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
         .filter((p) => p.ruolo_campo !== "Portiere")
         .sort((a, b) => ORDINE_RUOLI_IMG.indexOf(a.ruolo_campo) - ORDINE_RUOLI_IMG.indexOf(b.ruolo_campo));
       return [...portiere, ...resto].slice(0, 6);
+    };
+
+    // Posizioni a mezzaluna: portiere in basso al centro, gli altri 5 su un
+    // arco che sale sopra di lui, da sinistra a destra.
+    const calcolaSlotMezzaluna = (w, areaH) => {
+      const cx = w * 0.5;
+      const gkY = areaH * 0.88;
+      const raggioX = w * 0.37;
+      const raggioY = areaH * 0.52;
+      const angoli = [155, 121, 90, 59, 25]; // gradi, da sinistra a destra
+      const arco = angoli.map((deg) => {
+        const rad = (deg * Math.PI) / 180;
+        return { fx: (cx + Math.cos(rad) * raggioX) / w, fy: (gkY - Math.sin(rad) * raggioY) / areaH };
+      });
+      return [{ fx: cx / w, fy: gkY / areaH }, ...arco];
     };
 
     const disegnaPannelloSquadra = (ctx, x, y, w, h, titolo, lista, immagini, chiaro) => {
@@ -1916,13 +1920,13 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
 
       const areaY = y + ALTEZZA_HEADER;
       const areaH = h - ALTEZZA_HEADER;
-      const raggio = 46;
+      const raggio = 42;
 
       // porta: rettangolo verticale con rete, sul lato destro del pannello
       const goalW = 26, goalH = 130;
       const goalX = x + w - 56;
       const goalY = areaY + areaH * 0.42 - goalH / 2;
-      ctx.strokeStyle = chiaro ? "rgba(15,46,29,0.6)" : "rgba(242,240,233,0.55)";
+      ctx.strokeStyle = "rgba(242,240,233,0.55)";
       ctx.lineWidth = 3;
       ctx.strokeRect(goalX, goalY, goalW, goalH);
       ctx.lineWidth = 1;
@@ -1943,7 +1947,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
       ctx.save();
       ctx.translate(goalX - 18, areaY + areaH * 0.42);
       ctx.rotate(-Math.PI / 2);
-      ctx.fillStyle = chiaro ? "rgba(15,46,29,0.45)" : "rgba(242,240,233,0.4)";
+      ctx.fillStyle = "rgba(242,240,233,0.4)";
       ctx.font = "bold 12px sans-serif";
       ctx.textAlign = "center";
       ctx.fillText("ATTACCO", 0, -6);
@@ -1951,11 +1955,12 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
       ctx.restore();
 
       const squadraOrdinata = ordinaSquadra(lista);
+      const slotMezzaluna = calcolaSlotMezzaluna(w, areaH);
       const goalCx = goalX + goalW / 2;
       const goalCy = goalY + goalH / 2;
 
       squadraOrdinata.forEach((p, i) => {
-        const slot = SLOT_IMG[i];
+        const slot = slotMezzaluna[i];
         const cx = x + w * slot.fx;
         const cy = areaY + areaH * slot.fy;
         const img = immaginePerId[p.id];
@@ -1969,7 +1974,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
         const alen = 34;
         const bx = ax + Math.cos(ang) * alen;
         const by = ay + Math.sin(ang) * alen;
-        ctx.strokeStyle = chiaro ? "rgba(15,46,29,0.35)" : "rgba(242,240,233,0.3)";
+        ctx.strokeStyle = "rgba(242,240,233,0.3)";
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(ax, ay);
@@ -1980,7 +1985,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
         ctx.lineTo(bx - Math.cos(ang - 0.4) * 8, by - Math.sin(ang - 0.4) * 8);
         ctx.lineTo(bx - Math.cos(ang + 0.4) * 8, by - Math.sin(ang + 0.4) * 8);
         ctx.closePath();
-        ctx.fillStyle = chiaro ? "rgba(15,46,29,0.35)" : "rgba(242,240,233,0.3)";
+        ctx.fillStyle = "rgba(242,240,233,0.3)";
         ctx.fill();
         ctx.restore();
 
@@ -2014,13 +2019,13 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
         ctx.restore();
 
         // etichetta ruolo
-        ctx.fillStyle = chiaro ? "rgba(15,46,29,0.55)" : "rgba(242,240,233,0.5)";
+        ctx.fillStyle = "rgba(242,240,233,0.6)";
         ctx.font = "bold 12px sans-serif";
         ctx.textAlign = "center";
         ctx.fillText(SIGLA_RUOLO_IMG[p.ruolo_campo] || "", cx, cy - raggio - 12);
 
         // nome (troncato se troppo lungo)
-        ctx.fillStyle = chiaro ? "#0F2E1D" : "#F2F0E9";
+        ctx.fillStyle = "#F2F0E9";
         ctx.font = "20px sans-serif";
         ctx.textAlign = "center";
         let nome = p.name || "";

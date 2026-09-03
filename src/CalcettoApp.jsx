@@ -414,6 +414,8 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true, squadra = nul
 
   const timbro = p.convocato
     ? { label: "Convocato", colore: COLORS.green, dataBreve: null }
+    : p.ospite
+    ? null
     : statoGiocatoreStamp(statoEffettivoGiocatore(p), p.stato_giocatore_scadenza);
 
   return (
@@ -526,23 +528,25 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true, squadra = nul
               )}
             </div>
           </div>
-          <div
-            style={{
-              position: "absolute", bottom: dim.stampBottom, right: dim.stampRight, transform: `rotate(${compatta ? -14 : -16}deg)`,
-              border: `${compatta ? 1.5 : 2}px solid ${timbro.colore}`,
-              color: timbro.colore,
-              background: "rgba(15,46,29,0.6)",
-              borderRadius: 4, padding: dim.stampPad,
-              fontFamily: "Barlow Condensed, sans-serif", fontWeight: 800, fontSize: dim.stampFont,
-              letterSpacing: 0.3, textTransform: "uppercase", whiteSpace: "nowrap",
-              textAlign: "center", lineHeight: 1.2,
-            }}
-          >
-            {timbro.label}
-            {timbro.dataBreve && (
-              <div style={{ fontSize: dim.stampDataFont, letterSpacing: 0.2, fontWeight: 700 }}>fino al {timbro.dataBreve}</div>
-            )}
-          </div>
+          {timbro && (
+            <div
+              style={{
+                position: "absolute", bottom: dim.stampBottom, right: dim.stampRight, transform: `rotate(${compatta ? -14 : -16}deg)`,
+                border: `${compatta ? 1.5 : 2}px solid ${timbro.colore}`,
+                color: timbro.colore,
+                background: "rgba(15,46,29,0.6)",
+                borderRadius: 4, padding: dim.stampPad,
+                fontFamily: "Barlow Condensed, sans-serif", fontWeight: 800, fontSize: dim.stampFont,
+                letterSpacing: 0.3, textTransform: "uppercase", whiteSpace: "nowrap",
+                textAlign: "center", lineHeight: 1.2,
+              }}
+            >
+              {timbro.label}
+              {timbro.dataBreve && (
+                <div style={{ fontSize: dim.stampDataFont, letterSpacing: 0.2, fontWeight: 700 }}>fino al {timbro.dataBreve}</div>
+              )}
+            </div>
+          )}
         </div>
 
         <div
@@ -696,6 +700,7 @@ function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore,
   const me = players.find((p) => p.id === currentPlayerId);
   const [dettaglioAperto, setDettaglioAperto] = useState(false);
   const [rispostaInCorso, setRispostaInCorso] = useState(false);
+  const [dettaglioFormazioneAperto, setDettaglioFormazioneAperto] = useState(false);
 
   const miaSquadra = match
     ? match.squadraBianchi.includes(currentPlayerId)
@@ -749,8 +754,19 @@ function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore,
         const miaRisposta = conferme.find((c) => c.match_id === match.id && c.player_id === currentPlayerId);
         if (miaRisposta?.conferma === true) {
           return (
-            <div style={{ background: "rgba(76,175,109,0.1)", border: `1px solid ${COLORS.green}`, borderRadius: 12, padding: "12px 16px", marginBottom: 24, fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.green }}>
-              ✅ Hai confermato la tua presenza per questa partita.
+            <div style={{ background: "rgba(76,175,109,0.1)", border: `1px solid ${COLORS.green}`, borderRadius: 12, padding: "12px 16px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+              <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.green }}>
+                ✅ Hai confermato la tua presenza per questa partita.
+              </span>
+              <button
+                onClick={() => setDettaglioFormazioneAperto(true)}
+                style={{
+                  padding: "6px 12px", borderRadius: 7, border: `1px solid ${COLORS.green}`, cursor: "pointer",
+                  background: "transparent", color: COLORS.green, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12,
+                }}
+              >
+                📷 Vedi formazione
+              </button>
             </div>
           );
         }
@@ -759,7 +775,7 @@ function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore,
             <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: COLORS.chalk, marginBottom: 10 }}>
               📋 Sei stato convocato per {match.giorno} {formattaDataIT(match.data)} — ci sarai?
             </div>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               <button
                 onClick={async () => {
                   setRispostaInCorso(true);
@@ -788,10 +804,23 @@ function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore,
               >
                 ❌ Non posso venire
               </button>
+              <button
+                onClick={() => setDettaglioFormazioneAperto(true)}
+                style={{
+                  padding: "8px 16px", borderRadius: 8, border: `1px solid rgba(255,255,255,0.2)`, cursor: "pointer",
+                  background: "transparent", color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12.5,
+                }}
+              >
+                📷 Vedi formazione
+              </button>
             </div>
           </div>
         );
       })()}
+
+      {dettaglioFormazioneAperto && match && (
+        <AnteprimaFormazioneModal match={match} players={players} onChiudi={() => setDettaglioFormazioneAperto(false)} />
+      )}
 
       {me && (
         <>
@@ -1772,6 +1801,362 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
 /* ---------------------------------------------------------
    FORMAZIONE — scelta squadre + generazione immagine da condividere
 --------------------------------------------------------- */
+/* ---------------------------------------------------------
+   DISEGNO CONDIVISO DELL'IMMAGINE FORMAZIONE
+   (usato sia dall'anteprima/download in Crea Partita, sia
+   dall'anteprima di sola lettura apribile dalla Dashboard)
+--------------------------------------------------------- */
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+const caricaImmagineFormazione = (url) =>
+  new Promise((resolve) => {
+    if (!url) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+
+const ORDINE_RUOLI_IMG = ["Portiere", "Difensore", "Esterno Destro", "Esterno Sinistro", "Centrocampo", "Attaccante"];
+const SIGLA_RUOLO_IMG = {
+  Portiere: "GK", Difensore: "DIF", "Esterno Destro": "ED", "Esterno Sinistro": "ES",
+  Centrocampo: "CC", Attaccante: "ATT",
+};
+const ALTEZZA_HEADER_IMG = 64;
+const ALTEZZA_PANNELLO_IMG = 780;
+
+function ordinaSquadraImg(lista) {
+  const portiere = lista.filter((p) => p.ruolo_campo === "Portiere");
+  const resto = lista
+    .filter((p) => p.ruolo_campo !== "Portiere")
+    .sort((a, b) => ORDINE_RUOLI_IMG.indexOf(a.ruolo_campo) - ORDINE_RUOLI_IMG.indexOf(b.ruolo_campo));
+  return [...portiere, ...resto].slice(0, 6);
+}
+
+function calcolaSlotMezzalunaImg(numeroMovimento) {
+  const gkFx = 0.34, gkFy = 0.88;
+  const n = Math.max(numeroMovimento, 0);
+  const arco = [];
+  for (let i = 0; i < n; i++) {
+    const t = n > 1 ? i / (n - 1) : 0.5;
+    const baseFx = 0.34 + (0.82 - 0.34) * t;
+    const baseFy = 0.7 - (0.7 - 0.14) * t;
+    const curvatura = Math.sin(t * Math.PI) * -0.04;
+    arco.push({ fx: baseFx + curvatura, fy: baseFy });
+  }
+  return [{ fx: gkFx, fy: gkFy }, ...arco];
+}
+
+function disegnaPannelloSquadraImg(ctx, x, y, w, h, titolo, lista, immagini, chiaro) {
+  const sfondoPannello = ctx.createLinearGradient(x, y, x, y + h);
+  sfondoPannello.addColorStop(0, "#1B4332");
+  sfondoPannello.addColorStop(1, "#050c07");
+  ctx.fillStyle = sfondoPannello;
+  roundRect(ctx, x, y, w, h, 16);
+  ctx.fill();
+
+  ctx.save();
+  roundRect(ctx, x, y, w, h, 16);
+  ctx.clip();
+  const radiale = ctx.createRadialGradient(x + w * 0.3, y, 10, x + w * 0.3, y, w * 0.85);
+  radiale.addColorStop(0, "rgba(27,67,50,0.55)");
+  radiale.addColorStop(1, "rgba(27,67,50,0)");
+  ctx.fillStyle = radiale;
+  ctx.fillRect(x, y, w, h);
+  ctx.restore();
+
+  ctx.strokeStyle = "rgba(255,200,87,0.35)";
+  ctx.lineWidth = 2;
+  roundRect(ctx, x, y, w, h, 16);
+  ctx.stroke();
+
+  ctx.save();
+  roundRect(ctx, x, y, w, h, 16);
+  ctx.clip();
+  ctx.fillStyle = chiaro ? "#F2F0E9" : "#111418";
+  ctx.fillRect(x, y, w, ALTEZZA_HEADER_IMG);
+  ctx.restore();
+  ctx.fillStyle = chiaro ? "#0F2E1D" : "#F2F0E9";
+  ctx.font = "bold 30px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(titolo, x + w / 2, y + 42);
+
+  const immaginePerId = {};
+  lista.forEach((p, i) => { immaginePerId[p.id] = immagini[i]; });
+
+  const areaY = y + ALTEZZA_HEADER_IMG;
+  const areaH = h - ALTEZZA_HEADER_IMG;
+  const raggio = 42;
+
+  const goalW = 26, goalH = 130;
+  const goalX = x + w - 56;
+  const goalY = areaY + areaH * 0.42 - goalH / 2;
+  ctx.strokeStyle = "rgba(242,240,233,0.55)";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(goalX, goalY, goalW, goalH);
+  ctx.lineWidth = 1;
+  for (let gy = goalY + 12; gy < goalY + goalH; gy += 12) {
+    ctx.beginPath();
+    ctx.moveTo(goalX, gy);
+    ctx.lineTo(goalX + goalW, gy);
+    ctx.stroke();
+  }
+  for (let gx = goalX + 8; gx < goalX + goalW; gx += 8) {
+    ctx.beginPath();
+    ctx.moveTo(gx, goalY);
+    ctx.lineTo(gx, goalY + goalH);
+    ctx.stroke();
+  }
+
+  ctx.save();
+  ctx.translate(goalX - 18, areaY + areaH * 0.42);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = "rgba(242,240,233,0.4)";
+  ctx.font = "bold 12px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("ATTACCO", 0, -6);
+  ctx.fillText("VERSO PORTA", 0, 8);
+  ctx.restore();
+
+  const squadraOrdinata = ordinaSquadraImg(lista);
+  const haPortiere = squadraOrdinata[0]?.ruolo_campo === "Portiere";
+  const numeroMovimento = haPortiere ? squadraOrdinata.length - 1 : squadraOrdinata.length;
+  const slotMezzaluna = calcolaSlotMezzalunaImg(numeroMovimento);
+
+  squadraOrdinata.forEach((p, i) => {
+    const slot = slotMezzaluna[i];
+    const cx = x + w * slot.fx;
+    const cy = areaY + areaH * slot.fy;
+    const img = immaginePerId[p.id];
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, raggio + 4, 0, Math.PI * 2);
+    const grad = ctx.createLinearGradient(cx - raggio, cy - raggio, cx + raggio, cy + raggio);
+    grad.addColorStop(0, "#FFC857");
+    grad.addColorStop(1, "#8a6a1a");
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, raggio, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    if (img) {
+      ctx.drawImage(img, cx - raggio, cy - raggio, raggio * 2, raggio * 2);
+    } else {
+      ctx.fillStyle = p.colore || "#2D6A4F";
+      ctx.fillRect(cx - raggio, cy - raggio, raggio * 2, raggio * 2);
+      ctx.fillStyle = "#F2F0E9";
+      ctx.font = "bold 28px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(p.initials || "", cx, cy + 2);
+      ctx.textBaseline = "alphabetic";
+    }
+    ctx.restore();
+
+    ctx.fillStyle = "rgba(242,240,233,0.6)";
+    ctx.font = "bold 12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(SIGLA_RUOLO_IMG[p.ruolo_campo] || "", cx, cy - raggio - 10);
+
+    const parti = (p.name || "").trim().split(/\s+/);
+    let primaRiga = parti[0] || "";
+    let secondaRiga = parti.slice(1).join(" ");
+    const nomeX = cx - raggio - 10;
+    const larghezzaMax = w * slot.fx - 20;
+    ctx.fillStyle = "#F2F0E9";
+    ctx.font = "18px sans-serif";
+    ctx.textAlign = "right";
+    while (ctx.measureText(primaRiga).width > larghezzaMax && primaRiga.length > 2) {
+      primaRiga = primaRiga.slice(0, -1);
+    }
+    while (ctx.measureText(secondaRiga).width > larghezzaMax && secondaRiga.length > 2) {
+      secondaRiga = secondaRiga.slice(0, -1);
+    }
+    if (secondaRiga) {
+      ctx.fillText(primaRiga, nomeX, cy - 6);
+      ctx.fillText(secondaRiga, nomeX, cy + 15);
+    } else {
+      ctx.fillText(primaRiga, nomeX, cy + 5);
+    }
+  });
+}
+
+async function disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri) {
+  const [immaginiBianchi, immaginiNeri] = await Promise.all([
+    Promise.all(listaBianchi.map((p) => caricaImmagineFormazione(p.foto_url))),
+    Promise.all(listaNeri.map((p) => caricaImmagineFormazione(p.foto_url))),
+  ]);
+
+  const ctx = canvas.getContext("2d");
+  const W = 1080;
+  const panelY = 260;
+  const panelH = ALTEZZA_PANNELLO_IMG;
+  const H = panelY + panelH + 90;
+  canvas.width = W;
+  canvas.height = H;
+
+  ctx.fillStyle = "#0F2E1D";
+  ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  ctx.lineWidth = 2;
+  for (let d = -H; d < W; d += 9) {
+    ctx.beginPath();
+    ctx.moveTo(d, 0);
+    ctx.lineTo(d + H, H);
+    ctx.stroke();
+  }
+  ctx.restore();
+  const bgRadiale = ctx.createRadialGradient(W * 0.2, 0, 50, W * 0.2, 0, W);
+  bgRadiale.addColorStop(0, "rgba(27,67,50,0.55)");
+  bgRadiale.addColorStop(1, "rgba(15,46,29,0)");
+  ctx.fillStyle = bgRadiale;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = "#FFC857";
+  ctx.lineWidth = 6;
+  roundRect(ctx, 12, 12, W - 24, H - 24, 20);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,200,87,0.4)";
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, 24, 24, W - 48, H - 48, 16);
+  ctx.stroke();
+
+  const bannerGrad = ctx.createLinearGradient(60, 0, W - 60, 0);
+  bannerGrad.addColorStop(0, "#8a6a1a");
+  bannerGrad.addColorStop(0.5, "#FFC857");
+  bannerGrad.addColorStop(1, "#8a6a1a");
+  ctx.fillStyle = bannerGrad;
+  roundRect(ctx, 60, 46, W - 120, 58, 10);
+  ctx.fill();
+  ctx.fillStyle = "#0F2E1D";
+  ctx.font = "bold 28px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("FORMAZIONE GARA · CALCETTO TOTALE", W / 2, 84);
+
+  ctx.fillStyle = "#F2F0E9";
+  ctx.font = "bold 42px sans-serif";
+  ctx.fillText(`${match.giorno.toUpperCase()} ${formattaDataIT(match.data)} · ${match.ora}`, W / 2, 162);
+  ctx.font = "25px sans-serif";
+  ctx.fillStyle = "#B9C4BC";
+  ctx.fillText(match.campo, W / 2, 198);
+
+  const panelW = (W - 60 * 2 - 60) / 2;
+  const xBianchi = 60;
+  const xNeri = 60 + panelW + 60;
+
+  disegnaPannelloSquadraImg(ctx, xBianchi, panelY, panelW, panelH, "⚪ BIANCHI", listaBianchi, immaginiBianchi, true);
+  disegnaPannelloSquadraImg(ctx, xNeri, panelY, panelW, panelH, "⚫ NERI", listaNeri, immaginiNeri, false);
+
+  const cxVs = W / 2;
+  const cyVs = panelY + panelH / 2;
+  ctx.beginPath();
+  ctx.arc(cxVs, cyVs, 34, 0, Math.PI * 2);
+  const vsGrad = ctx.createLinearGradient(cxVs - 34, cyVs - 34, cxVs + 34, cyVs + 34);
+  vsGrad.addColorStop(0, "#FFC857");
+  vsGrad.addColorStop(1, "#8a6a1a");
+  ctx.fillStyle = vsGrad;
+  ctx.fill();
+  ctx.strokeStyle = "#0F2E1D";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.fillStyle = "#0F2E1D";
+  ctx.font = "bold 24px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("VS", cxVs, cyVs + 1);
+  ctx.textBaseline = "alphabetic";
+
+  ctx.fillStyle = "#B9C4BC";
+  ctx.font = "22px sans-serif";
+  ctx.fillText("Calcetto Totale", W / 2, H - 30);
+}
+
+/* ---------------------------------------------------------
+   ANTEPRIMA FORMAZIONE (sola lettura, apribile dalla Dashboard)
+--------------------------------------------------------- */
+function AnteprimaFormazioneModal({ match, players, onChiudi }) {
+  const canvasRef = useRef(null);
+
+  const listaBianchi = players.filter((p) => match.squadraBianchi.includes(p.id));
+  const listaNeri = players.filter((p) => match.squadraNeri.includes(p.id));
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let annullato = false;
+    disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri).then(() => {
+      if (annullato) return;
+    });
+    return () => {
+      annullato = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [match.id]);
+
+  const scarica = () => {
+    const canvas = canvasRef.current;
+    try {
+      const url = canvas.toDataURL("image/jpeg", 0.92);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `formazione-${match.giorno.toLowerCase()}-${match.data}.jpg`;
+      a.click();
+    } catch (e) {
+      alert("Non riesco a generare l'immagine per un problema di permessi del browser.");
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex",
+        alignItems: "center", justifyContent: "center", padding: 16, zIndex: 60,
+      }}
+      onClick={onChiudi}
+    >
+      <div
+        style={{ maxWidth: 460, width: "100%", maxHeight: "90vh", overflowY: "auto", borderRadius: 16 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <canvas ref={canvasRef} style={{ width: "100%", display: "block", borderRadius: 16, boxShadow: "0 12px 32px rgba(0,0,0,0.5)" }} />
+        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+          <button
+            onClick={scarica}
+            style={{
+              flex: 1, padding: "11px 0", borderRadius: 10, border: "none", cursor: "pointer",
+              background: COLORS.floodlight, color: COLORS.pitchDark, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 13.5,
+            }}
+          >
+            ⬇️ Scarica immagine
+          </button>
+          <button
+            onClick={onChiudi}
+            style={{
+              padding: "11px 18px", borderRadius: 10, border: `1px solid rgba(255,255,255,0.25)`, cursor: "pointer",
+              background: "rgba(0,0,0,0.4)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5,
+            }}
+          >
+            Chiudi
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggiungiGiocatore, conferme = [] }) {
   const match = matches.find((m) => m.stato === "aperta");
   const canvasRef = useRef(null);
@@ -1850,308 +2235,14 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
     const canvas = canvasRef.current;
     if (!canvas || !match) return;
     let annullato = false;
-
-    const caricaImmagine = (url) =>
-      new Promise((resolve) => {
-        if (!url) return resolve(null);
-        const img = new Image();
-        img.crossOrigin = "anonymous";
-        img.onload = () => resolve(img);
-        img.onerror = () => resolve(null);
-        img.src = url;
-      });
-
-    const ORDINE_RUOLI_IMG = ["Portiere", "Difensore", "Esterno Destro", "Esterno Sinistro", "Centrocampo", "Attaccante"];
-    const SIGLA_RUOLO_IMG = {
-      Portiere: "GK", Difensore: "DIF", "Esterno Destro": "ED", "Esterno Sinistro": "ES",
-      Centrocampo: "CC", Attaccante: "ATT",
-    };
-
-    const ALTEZZA_HEADER = 64;
-    const ALTEZZA_PANNELLO = 780;
-
-    const ordinaSquadra = (lista) => {
-      const portiere = lista.filter((p) => p.ruolo_campo === "Portiere");
-      const resto = lista
-        .filter((p) => p.ruolo_campo !== "Portiere")
-        .sort((a, b) => ORDINE_RUOLI_IMG.indexOf(a.ruolo_campo) - ORDINE_RUOLI_IMG.indexOf(b.ruolo_campo));
-      return [...portiere, ...resto].slice(0, 6);
-    };
-
-    // Posizioni a mezzaluna: portiere in basso al centro, gli altri 5 su un
-    // arco che sale sopra di lui, da sinistra a destra.
-    const calcolaSlotMezzaluna = (w, areaH, numeroMovimento) => {
-      const gkFx = 0.34, gkFy = 0.88;
-      const n = Math.max(numeroMovimento, 0);
-      const arco = [];
-      for (let i = 0; i < n; i++) {
-        const t = n > 1 ? i / (n - 1) : 0.5;
-        const baseFx = 0.34 + (0.82 - 0.34) * t;
-        const baseFy = 0.7 - (0.7 - 0.14) * t; // sale sempre, mai ridiscende
-        const curvatura = Math.sin(t * Math.PI) * -0.04; // leggerissima pancia a mezzaluna
-        arco.push({ fx: baseFx + curvatura, fy: baseFy });
-      }
-      return [{ fx: gkFx, fy: gkFy }, ...arco];
-    };
-
-    const disegnaPannelloSquadra = (ctx, x, y, w, h, titolo, lista, immagini, chiaro) => {
-      // sfondo del pannello: stesso verde screziato delle figurine
-      const sfondoPannello = ctx.createLinearGradient(x, y, x, y + h);
-      sfondoPannello.addColorStop(0, "#1B4332");
-      sfondoPannello.addColorStop(1, "#050c07");
-      ctx.fillStyle = sfondoPannello;
-      roundRect(ctx, x, y, w, h, 16);
-      ctx.fill();
-
-      ctx.save();
-      roundRect(ctx, x, y, w, h, 16);
-      ctx.clip();
-      const radiale = ctx.createRadialGradient(x + w * 0.3, y, 10, x + w * 0.3, y, w * 0.85);
-      radiale.addColorStop(0, "rgba(27,67,50,0.55)");
-      radiale.addColorStop(1, "rgba(27,67,50,0)");
-      ctx.fillStyle = radiale;
-      ctx.fillRect(x, y, w, h);
-      ctx.restore();
-
-      ctx.strokeStyle = "rgba(255,200,87,0.35)";
-      ctx.lineWidth = 2;
-      roundRect(ctx, x, y, w, h, 16);
-      ctx.stroke();
-
-      // barra titolo
-      ctx.save();
-      roundRect(ctx, x, y, w, h, 16);
-      ctx.clip();
-      ctx.fillStyle = chiaro ? "#F2F0E9" : "#111418";
-      ctx.fillRect(x, y, w, ALTEZZA_HEADER);
-      ctx.restore();
-      ctx.fillStyle = chiaro ? "#0F2E1D" : "#F2F0E9";
-      ctx.font = "bold 30px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(titolo, x + w / 2, y + 42);
-
-      const immaginePerId = {};
-      lista.forEach((p, i) => { immaginePerId[p.id] = immagini[i]; });
-
-      const areaY = y + ALTEZZA_HEADER;
-      const areaH = h - ALTEZZA_HEADER;
-      const raggio = 42;
-
-      // porta: rettangolo verticale con rete, sul lato destro del pannello
-      const goalW = 26, goalH = 130;
-      const goalX = x + w - 56;
-      const goalY = areaY + areaH * 0.42 - goalH / 2;
-      ctx.strokeStyle = "rgba(242,240,233,0.55)";
-      ctx.lineWidth = 3;
-      ctx.strokeRect(goalX, goalY, goalW, goalH);
-      ctx.lineWidth = 1;
-      for (let gy = goalY + 12; gy < goalY + goalH; gy += 12) {
-        ctx.beginPath();
-        ctx.moveTo(goalX, gy);
-        ctx.lineTo(goalX + goalW, gy);
-        ctx.stroke();
-      }
-      for (let gx = goalX + 8; gx < goalX + goalW; gx += 8) {
-        ctx.beginPath();
-        ctx.moveTo(gx, goalY);
-        ctx.lineTo(gx, goalY + goalH);
-        ctx.stroke();
-      }
-
-      // "ATTACCO VERSO PORTA" — etichetta accanto alla porta
-      ctx.save();
-      ctx.translate(goalX - 18, areaY + areaH * 0.42);
-      ctx.rotate(-Math.PI / 2);
-      ctx.fillStyle = "rgba(242,240,233,0.4)";
-      ctx.font = "bold 12px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText("ATTACCO", 0, -6);
-      ctx.fillText("VERSO PORTA", 0, 8);
-      ctx.restore();
-
-      const squadraOrdinata = ordinaSquadra(lista);
-      const haPortiere = squadraOrdinata[0]?.ruolo_campo === "Portiere";
-      const numeroMovimento = haPortiere ? squadraOrdinata.length - 1 : squadraOrdinata.length;
-      const slotMezzaluna = calcolaSlotMezzaluna(w, areaH, numeroMovimento);
-
-      squadraOrdinata.forEach((p, i) => {
-        const slot = slotMezzaluna[i];
-        const cx = x + w * slot.fx;
-        const cy = areaY + areaH * slot.fy;
-        const img = immaginePerId[p.id];
-
-        // anello dorato
-        ctx.beginPath();
-        ctx.arc(cx, cy, raggio + 4, 0, Math.PI * 2);
-        const grad = ctx.createLinearGradient(cx - raggio, cy - raggio, cx + raggio, cy + raggio);
-        grad.addColorStop(0, "#FFC857");
-        grad.addColorStop(1, "#8a6a1a");
-        ctx.fillStyle = grad;
-        ctx.fill();
-
-        // foto o iniziali
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(cx, cy, raggio, 0, Math.PI * 2);
-        ctx.closePath();
-        ctx.clip();
-        if (img) {
-          ctx.drawImage(img, cx - raggio, cy - raggio, raggio * 2, raggio * 2);
-        } else {
-          ctx.fillStyle = p.colore || "#2D6A4F";
-          ctx.fillRect(cx - raggio, cy - raggio, raggio * 2, raggio * 2);
-          ctx.fillStyle = "#F2F0E9";
-          ctx.font = "bold 28px sans-serif";
-          ctx.textAlign = "center";
-          ctx.textBaseline = "middle";
-          ctx.fillText(p.initials || "", cx, cy + 2);
-          ctx.textBaseline = "alphabetic";
-        }
-        ctx.restore();
-
-        // etichetta ruolo
-        ctx.fillStyle = "rgba(242,240,233,0.6)";
-        ctx.font = "bold 12px sans-serif";
-        ctx.textAlign = "center";
-        ctx.fillText(SIGLA_RUOLO_IMG[p.ruolo_campo] || "", cx, cy - raggio - 10);
-
-        // nome e cognome, a sinistra del cerchio, su due righe
-        const parti = (p.name || "").trim().split(/\s+/);
-        let primaRiga = parti[0] || "";
-        let secondaRiga = parti.slice(1).join(" ");
-        const nomeX = cx - raggio - 10;
-        const larghezzaMax = w * slot.fx - 20;
-        ctx.fillStyle = "#F2F0E9";
-        ctx.font = "18px sans-serif";
-        ctx.textAlign = "right";
-        while (ctx.measureText(primaRiga).width > larghezzaMax && primaRiga.length > 2) {
-          primaRiga = primaRiga.slice(0, -1);
-        }
-        while (ctx.measureText(secondaRiga).width > larghezzaMax && secondaRiga.length > 2) {
-          secondaRiga = secondaRiga.slice(0, -1);
-        }
-        if (secondaRiga) {
-          ctx.fillText(primaRiga, nomeX, cy - 6);
-          ctx.fillText(secondaRiga, nomeX, cy + 15);
-        } else {
-          ctx.fillText(primaRiga, nomeX, cy + 5);
-        }
-      });
-    };
-
-    const disegna = async () => {
-      const [immaginiBianchi, immaginiNeri] = await Promise.all([
-        Promise.all(listaBianchi.map((p) => caricaImmagine(p.foto_url))),
-        Promise.all(listaNeri.map((p) => caricaImmagine(p.foto_url))),
-      ]);
+    disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri).then(() => {
       if (annullato) return;
-
-      const ctx = canvas.getContext("2d");
-      const W = 1080;
-      const panelY = 260;
-      const panelH = ALTEZZA_PANNELLO;
-      const H = panelY + panelH + 90;
-      canvas.width = W;
-      canvas.height = H;
-
-      // sfondo con texture rigata + gradiente radiale, coerente col resto dell'app
-      ctx.fillStyle = "#0F2E1D";
-      ctx.fillRect(0, 0, W, H);
-      ctx.save();
-      ctx.strokeStyle = "rgba(255,255,255,0.04)";
-      ctx.lineWidth = 2;
-      for (let d = -H; d < W; d += 9) {
-        ctx.beginPath();
-        ctx.moveTo(d, 0);
-        ctx.lineTo(d + H, H);
-        ctx.stroke();
-      }
-      ctx.restore();
-      const bgRadiale = ctx.createRadialGradient(W * 0.2, 0, 50, W * 0.2, 0, W);
-      bgRadiale.addColorStop(0, "rgba(27,67,50,0.55)");
-      bgRadiale.addColorStop(1, "rgba(15,46,29,0)");
-      ctx.fillStyle = bgRadiale;
-      ctx.fillRect(0, 0, W, H);
-
-      // cornice dorata doppia
-      ctx.strokeStyle = "#FFC857";
-      ctx.lineWidth = 6;
-      roundRect(ctx, 12, 12, W - 24, H - 24, 20);
-      ctx.stroke();
-      ctx.strokeStyle = "rgba(255,200,87,0.4)";
-      ctx.lineWidth = 1.5;
-      roundRect(ctx, 24, 24, W - 48, H - 48, 16);
-      ctx.stroke();
-
-      // banner titolo
-      const bannerGrad = ctx.createLinearGradient(60, 0, W - 60, 0);
-      bannerGrad.addColorStop(0, "#8a6a1a");
-      bannerGrad.addColorStop(0.5, "#FFC857");
-      bannerGrad.addColorStop(1, "#8a6a1a");
-      ctx.fillStyle = bannerGrad;
-      roundRect(ctx, 60, 46, W - 120, 58, 10);
-      ctx.fill();
-      ctx.fillStyle = "#0F2E1D";
-      ctx.font = "bold 28px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText("FORMAZIONE GARA · CALCETTO TOTALE", W / 2, 84);
-
-      ctx.fillStyle = "#F2F0E9";
-      ctx.font = "bold 42px sans-serif";
-      ctx.fillText(`${match.giorno.toUpperCase()} ${formattaDataIT(match.data)} · ${match.ora}`, W / 2, 162);
-      ctx.font = "25px sans-serif";
-      ctx.fillStyle = "#B9C4BC";
-      ctx.fillText(match.campo, W / 2, 198);
-
-      // pannelli squadra
-      const panelW = (W - 60 * 2 - 60) / 2;
-      const xBianchi = 60;
-      const xNeri = 60 + panelW + 60;
-
-      disegnaPannelloSquadra(ctx, xBianchi, panelY, panelW, panelH, "⚪ BIANCHI", listaBianchi, immaginiBianchi, true);
-      disegnaPannelloSquadra(ctx, xNeri, panelY, panelW, panelH, "⚫ NERI", listaNeri, immaginiNeri, false);
-
-      // pallino "VS" centrale
-      const cxVs = W / 2;
-      const cyVs = panelY + panelH / 2;
-      ctx.beginPath();
-      ctx.arc(cxVs, cyVs, 34, 0, Math.PI * 2);
-      const vsGrad = ctx.createLinearGradient(cxVs - 34, cyVs - 34, cxVs + 34, cyVs + 34);
-      vsGrad.addColorStop(0, "#FFC857");
-      vsGrad.addColorStop(1, "#8a6a1a");
-      ctx.fillStyle = vsGrad;
-      ctx.fill();
-      ctx.strokeStyle = "#0F2E1D";
-      ctx.lineWidth = 3;
-      ctx.stroke();
-      ctx.fillStyle = "#0F2E1D";
-      ctx.font = "bold 24px sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText("VS", cxVs, cyVs + 1);
-      ctx.textBaseline = "alphabetic";
-
-      // footer
-      ctx.fillStyle = "#B9C4BC";
-      ctx.font = "22px sans-serif";
-      ctx.fillText("Calcetto Totale", W / 2, H - 30);
-    };
-
-    disegna();
+    });
     return () => {
       annullato = true;
     };
   }, [squadre, match, listaBianchi.length, listaNeri.length]);
 
-  function roundRect(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
 
   const scarica = () => {
     if (!match) return;

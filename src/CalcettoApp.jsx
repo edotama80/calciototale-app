@@ -1880,12 +1880,21 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
 
     // Posizioni a mezzaluna: portiere in basso al centro, gli altri 5 su un
     // arco che sale sopra di lui, da sinistra a destra.
-    const calcolaSlotMezzaluna = (w, areaH) => {
+    const calcolaSlotMezzaluna = (w, areaH, numeroMovimento) => {
       const cx = w * 0.5;
       const gkY = areaH * 0.88;
       const raggioX = w * 0.37;
       const raggioY = areaH * 0.52;
-      const angoli = [155, 121, 90, 59, 25]; // gradi, da sinistra a destra
+      const n = Math.max(numeroMovimento, 0);
+      let angoli = [];
+      if (n === 1) {
+        angoli = [90];
+      } else if (n > 1) {
+        const inizio = 160, fine = 20;
+        for (let i = 0; i < n; i++) {
+          angoli.push(inizio + ((fine - inizio) * i) / (n - 1));
+        }
+      }
       const arco = angoli.map((deg) => {
         const rad = (deg * Math.PI) / 180;
         return { fx: (cx + Math.cos(rad) * raggioX) / w, fy: (gkY - Math.sin(rad) * raggioY) / areaH };
@@ -1955,7 +1964,9 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
       ctx.restore();
 
       const squadraOrdinata = ordinaSquadra(lista);
-      const slotMezzaluna = calcolaSlotMezzaluna(w, areaH);
+      const haPortiere = squadraOrdinata[0]?.ruolo_campo === "Portiere";
+      const numeroMovimento = haPortiere ? squadraOrdinata.length - 1 : squadraOrdinata.length;
+      const slotMezzaluna = calcolaSlotMezzaluna(w, areaH, numeroMovimento);
       const goalCx = goalX + goalW / 2;
       const goalCy = goalY + goalH / 2;
 

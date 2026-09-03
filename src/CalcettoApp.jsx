@@ -3281,12 +3281,19 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
   );
 }
 
-function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfile, session, onSalvaProfilo, onCambiaEmail }) {
+function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfile, session, onSalvaProfilo, onCambiaEmail, onAggiornaConsenso }) {
   const righe = [
-    { label: "Trattamento dati (presenze, voti, statistiche)", val: consensi?.consensoDati },
-    { label: "Utilizzo foto per la figurina", val: consensi?.consensoFoto },
-    { label: "Conferma maggiore età", val: consensi?.maggiorenne },
+    { chiave: "consenso_dati", label: "Trattamento dati (presenze, voti, statistiche)", val: consensi?.consensoDati },
+    { chiave: "consenso_foto", label: "Utilizzo foto per la figurina", val: consensi?.consensoFoto },
+    { chiave: "maggiorenne", label: "Conferma maggiore età", val: consensi?.maggiorenne },
   ];
+  const [inCorso, setInCorso] = useState(null);
+
+  const concedi = async (chiave) => {
+    setInCorso(chiave);
+    await onAggiornaConsenso(chiave);
+    setInCorso(null);
+  };
 
   return (
     <div>
@@ -3309,9 +3316,23 @@ function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfi
             }}
           >
             <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13.5, color: COLORS.chalk }}>{r.label}</span>
-            <span style={chip(r.val ? "rgba(76,175,109,0.15)" : "rgba(229,83,60,0.15)", r.val ? COLORS.green : COLORS.red)}>
-              {r.val ? "✓ Concesso" : "Non concesso"}
-            </span>
+            {r.val ? (
+              <span style={chip("rgba(76,175,109,0.15)", COLORS.green)}>✓ Concesso</span>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={chip("rgba(229,83,60,0.15)", COLORS.red)}>Non concesso</span>
+                <button
+                  onClick={() => concedi(r.chiave)}
+                  disabled={inCorso === r.chiave}
+                  style={{
+                    padding: "5px 10px", borderRadius: 7, border: "none", cursor: inCorso === r.chiave ? "not-allowed" : "pointer",
+                    background: COLORS.floodlight, color: COLORS.pitchDark, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 11.5,
+                  }}
+                >
+                  {inCorso === r.chiave ? "…" : "Concedi ora"}
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -4169,6 +4190,15 @@ export default function CalcettoApp() {
     await Promise.all([caricaGiocatori(), ricaricaMioProfilo()]);
   };
 
+  const aggiornaConsenso = async (chiave) => {
+    if (!myProfile) return;
+    await supabase
+      .from("profiles")
+      .update({ [chiave]: true, consenso_timestamp: new Date().toISOString() })
+      .eq("id", myProfile.id);
+    await ricaricaMioProfilo();
+  };
+
   const cambiaEmail = async (nuovaEmail) => {
     const { error } = await supabase.auth.updateUser({ email: nuovaEmail });
     if (error) throw error;
@@ -4619,6 +4649,7 @@ export default function CalcettoApp() {
           session={session}
           onSalvaProfilo={salvaProfilo}
           onCambiaEmail={cambiaEmail}
+          onAggiornaConsenso={aggiornaConsenso}
         />
       )}
       </div>

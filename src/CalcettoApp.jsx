@@ -1881,25 +1881,17 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
     // Posizioni a mezzaluna: portiere in basso al centro, gli altri 5 su un
     // arco che sale sopra di lui, da sinistra a destra.
     const calcolaSlotMezzaluna = (w, areaH, numeroMovimento) => {
-      const cx = w * 0.5;
-      const gkY = areaH * 0.88;
-      const raggioX = w * 0.37;
-      const raggioY = areaH * 0.52;
+      const gkFx = 0.22, gkFy = 0.88;
       const n = Math.max(numeroMovimento, 0);
-      let angoli = [];
-      if (n === 1) {
-        angoli = [90];
-      } else if (n > 1) {
-        const inizio = 160, fine = 20;
-        for (let i = 0; i < n; i++) {
-          angoli.push(inizio + ((fine - inizio) * i) / (n - 1));
-        }
+      const arco = [];
+      for (let i = 0; i < n; i++) {
+        const t = n > 1 ? i / (n - 1) : 0.5;
+        const baseFx = 0.20 + (0.68 - 0.2) * t;
+        const baseFy = 0.7 - (0.7 - 0.14) * t; // sale sempre, mai ridiscende
+        const curvatura = Math.sin(t * Math.PI) * -0.1; // leggera pancia a mezzaluna
+        arco.push({ fx: baseFx + curvatura, fy: baseFy });
       }
-      const arco = angoli.map((deg) => {
-        const rad = (deg * Math.PI) / 180;
-        return { fx: (cx + Math.cos(rad) * raggioX) / w, fy: (gkY - Math.sin(rad) * raggioY) / areaH };
-      });
-      return [{ fx: cx / w, fy: gkY / areaH }, ...arco];
+      return [{ fx: gkFx, fy: gkFy }, ...arco];
     };
 
     const disegnaPannelloSquadra = (ctx, x, y, w, h, titolo, lista, immagini, chiaro) => {

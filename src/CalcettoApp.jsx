@@ -1881,24 +1881,38 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
     // Posizioni a mezzaluna: portiere in basso al centro, gli altri 5 su un
     // arco che sale sopra di lui, da sinistra a destra.
     const calcolaSlotMezzaluna = (w, areaH, numeroMovimento) => {
-      const gkFx = 0.22, gkFy = 0.88;
+      const gkFx = 0.34, gkFy = 0.88;
       const n = Math.max(numeroMovimento, 0);
       const arco = [];
       for (let i = 0; i < n; i++) {
         const t = n > 1 ? i / (n - 1) : 0.5;
-        const baseFx = 0.20 + (0.68 - 0.2) * t;
+        const baseFx = 0.34 + (0.82 - 0.34) * t;
         const baseFy = 0.7 - (0.7 - 0.14) * t; // sale sempre, mai ridiscende
-        const curvatura = Math.sin(t * Math.PI) * -0.1; // leggera pancia a mezzaluna
+        const curvatura = Math.sin(t * Math.PI) * -0.04; // leggerissima pancia a mezzaluna
         arco.push({ fx: baseFx + curvatura, fy: baseFy });
       }
       return [{ fx: gkFx, fy: gkFy }, ...arco];
     };
 
     const disegnaPannelloSquadra = (ctx, x, y, w, h, titolo, lista, immagini, chiaro) => {
-      // sfondo e cornice del pannello
-      ctx.fillStyle = "rgba(5,12,7,0.55)";
+      // sfondo del pannello: stesso verde screziato delle figurine
+      const sfondoPannello = ctx.createLinearGradient(x, y, x, y + h);
+      sfondoPannello.addColorStop(0, "#1B4332");
+      sfondoPannello.addColorStop(1, "#050c07");
+      ctx.fillStyle = sfondoPannello;
       roundRect(ctx, x, y, w, h, 16);
       ctx.fill();
+
+      ctx.save();
+      roundRect(ctx, x, y, w, h, 16);
+      ctx.clip();
+      const radiale = ctx.createRadialGradient(x + w * 0.3, y, 10, x + w * 0.3, y, w * 0.85);
+      radiale.addColorStop(0, "rgba(27,67,50,0.55)");
+      radiale.addColorStop(1, "rgba(27,67,50,0)");
+      ctx.fillStyle = radiale;
+      ctx.fillRect(x, y, w, h);
+      ctx.restore();
+
       ctx.strokeStyle = "rgba(255,200,87,0.35)";
       ctx.lineWidth = 2;
       roundRect(ctx, x, y, w, h, 16);
@@ -1959,38 +1973,12 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
       const haPortiere = squadraOrdinata[0]?.ruolo_campo === "Portiere";
       const numeroMovimento = haPortiere ? squadraOrdinata.length - 1 : squadraOrdinata.length;
       const slotMezzaluna = calcolaSlotMezzaluna(w, areaH, numeroMovimento);
-      const goalCx = goalX + goalW / 2;
-      const goalCy = goalY + goalH / 2;
 
       squadraOrdinata.forEach((p, i) => {
         const slot = slotMezzaluna[i];
         const cx = x + w * slot.fx;
         const cy = areaY + areaH * slot.fy;
         const img = immaginePerId[p.id];
-
-        // freccia verso la porta
-        ctx.save();
-        const ang = Math.atan2(goalCy - cy, goalCx - cx);
-        const startR = raggio + 10;
-        const ax = cx + Math.cos(ang) * startR;
-        const ay = cy + Math.sin(ang) * startR;
-        const alen = 34;
-        const bx = ax + Math.cos(ang) * alen;
-        const by = ay + Math.sin(ang) * alen;
-        ctx.strokeStyle = "rgba(242,240,233,0.3)";
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.moveTo(ax, ay);
-        ctx.lineTo(bx, by);
-        ctx.stroke();
-        ctx.beginPath();
-        ctx.moveTo(bx, by);
-        ctx.lineTo(bx - Math.cos(ang - 0.4) * 8, by - Math.sin(ang - 0.4) * 8);
-        ctx.lineTo(bx - Math.cos(ang + 0.4) * 8, by - Math.sin(ang + 0.4) * 8);
-        ctx.closePath();
-        ctx.fillStyle = "rgba(242,240,233,0.3)";
-        ctx.fill();
-        ctx.restore();
 
         // anello dorato
         ctx.beginPath();
@@ -2025,18 +2013,29 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
         ctx.fillStyle = "rgba(242,240,233,0.6)";
         ctx.font = "bold 12px sans-serif";
         ctx.textAlign = "center";
-        ctx.fillText(SIGLA_RUOLO_IMG[p.ruolo_campo] || "", cx, cy - raggio - 12);
+        ctx.fillText(SIGLA_RUOLO_IMG[p.ruolo_campo] || "", cx, cy - raggio - 10);
 
-        // nome (troncato se troppo lungo)
+        // nome e cognome, a sinistra del cerchio, su due righe
+        const parti = (p.name || "").trim().split(/\s+/);
+        let primaRiga = parti[0] || "";
+        let secondaRiga = parti.slice(1).join(" ");
+        const nomeX = cx - raggio - 10;
+        const larghezzaMax = w * slot.fx - 20;
         ctx.fillStyle = "#F2F0E9";
-        ctx.font = "20px sans-serif";
-        ctx.textAlign = "center";
-        let nome = p.name || "";
-        while (ctx.measureText(nome).width > w / 3.2 && nome.length > 3) {
-          nome = nome.slice(0, -1);
+        ctx.font = "18px sans-serif";
+        ctx.textAlign = "right";
+        while (ctx.measureText(primaRiga).width > larghezzaMax && primaRiga.length > 2) {
+          primaRiga = primaRiga.slice(0, -1);
         }
-        if (nome !== p.name) nome += "…";
-        ctx.fillText(nome, cx, cy + raggio + 24);
+        while (ctx.measureText(secondaRiga).width > larghezzaMax && secondaRiga.length > 2) {
+          secondaRiga = secondaRiga.slice(0, -1);
+        }
+        if (secondaRiga) {
+          ctx.fillText(primaRiga, nomeX, cy - 6);
+          ctx.fillText(secondaRiga, nomeX, cy + 15);
+        } else {
+          ctx.fillText(primaRiga, nomeX, cy + 5);
+        }
       });
     };
 

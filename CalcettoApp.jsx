@@ -34,7 +34,93 @@ const FONT_IMPORT = `@import url('https://fonts.googleapis.com/css2?family=Barlo
 }
 @media (min-width: 1100px) {
   .figurine-grid { grid-template-columns: repeat(5, 1fr); }
+}
+
+.formazione-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+@media (min-width: 480px) {
+  .formazione-grid { grid-template-columns: repeat(4, 1fr); }
+}
+@media (min-width: 700px) {
+  .formazione-grid { grid-template-columns: repeat(5, 1fr); }
+}
+@media (min-width: 980px) {
+  .formazione-grid { grid-template-columns: repeat(6, 1fr); }
+}
+
+/* Feedback al tocco su tutti i bottoni */
+button {
+  transition: filter .15s ease, transform .08s ease, box-shadow .15s ease;
+}
+button:hover:not(:disabled) {
+  filter: brightness(1.12);
+}
+button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+button:disabled {
+  cursor: not-allowed;
+}
+
+/* Focus da tastiera, coerente col tema */
+button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {
+  outline: 2px solid #FFC857;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Scrollbar sottile e coerente col tema, dove supportata */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 8px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
+* { scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.18) transparent; }
+
+/* Figurine: piccolo sollevamento al passaggio del mouse */
+.figurina-hover {
+  transition: transform .18s ease, box-shadow .18s ease;
+}
+.figurina-hover:hover {
+  transform: translateY(-4px);
+}
+
+/* Barra delle tab scorrevole invece che a capo */
+.tabs-scroll {
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-wrap: nowrap !important;
+  scrollbar-width: none;
+}
+.tabs-scroll::-webkit-scrollbar { display: none; }
+.tabs-scroll button { white-space: nowrap; flex-shrink: 0; }
+
+/* Dissolvenza leggera al cambio contenuto */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fadeInUp .22s ease; }
+
+/* Spinner di caricamento */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spinner {
+  width: 26px; height: 26px; border-radius: 50%;
+  border: 3px solid rgba(255,255,255,0.15);
+  border-top-color: #FFC857;
+  animation: spin .8s linear infinite;
 }`;
+
+function Spinner({ testo }) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 12, padding: "50px 0" }}>
+      <div className="spinner" />
+      {testo && <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 12.5 }}>{testo}</div>}
+    </div>
+  );
+}
 
 /* ---------------------------------------------------------
    MOCK DATA
@@ -120,6 +206,34 @@ function affidabilitaColor(v) {
   return COLORS.red;
 }
 
+function statoGiocatoreInfo(stato) {
+  if (stato === "infortunato") return { label: "Infortunato", icona: "🤕", colore: COLORS.red };
+  if (stato === "non_disponibile") return { label: "Non disponibile", icona: "🚫", colore: COLORS.chalkDim };
+  return null; // "disponibile" non mostra etichetta piccola (usata solo nelle tessere compatte)
+}
+
+// Se lo stato ha una scadenza già passata, il giocatore torna disponibile
+// automaticamente, senza bisogno che nessuno lo cambi a mano.
+function statoEffettivoGiocatore(p) {
+  const stato = p?.stato_giocatore || "disponibile";
+  if (stato !== "disponibile" && p?.stato_giocatore_scadenza) {
+    const oggi = new Date();
+    oggi.setHours(0, 0, 0, 0);
+    const scadenza = new Date(p.stato_giocatore_scadenza);
+    if (oggi > scadenza) return "disponibile";
+  }
+  return stato;
+}
+
+function statoGiocatoreStamp(stato, scadenza) {
+  const dataBreve = scadenza
+    ? new Date(scadenza).toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" })
+    : null;
+  if (stato === "infortunato") return { label: "Infortunato", colore: COLORS.red, dataBreve };
+  if (stato === "non_disponibile") return { label: "Non disponibile", colore: "#FFA726", dataBreve };
+  return { label: "Disponibile", colore: "#4dc3ff", dataBreve: null }; // il timbro sulla foto si mostra sempre, anche per "disponibile"
+}
+
 function nomeById(players, id, rimossi = []) {
   if (rimossi.includes(id) || rimossi.includes(String(id))) return "Giocatore rimosso";
   return players.find((p) => p.id === id)?.name || "—";
@@ -173,6 +287,21 @@ function mediaTroncata(voti) {
   return centrali.reduce((a, b) => a + b, 0) / centrali.length;
 }
 
+// Calcola l'MVP di una partita dai voti dei giocatori: chi ha più voti vince.
+// In caso di parità in cima, non assegna nessuno (evita scelte arbitrarie).
+function calcolaMvp(matchId, votiMvp) {
+  const conteggio = {};
+  votiMvp
+    .filter((v) => v.match_id === matchId)
+    .forEach((v) => {
+      conteggio[v.votato_id] = (conteggio[v.votato_id] || 0) + 1;
+    });
+  const voci = Object.entries(conteggio).sort((a, b) => b[1] - a[1]);
+  if (voci.length === 0) return null;
+  if (voci.length > 1 && voci[0][1] === voci[1][1]) return { id: null, pari: true, voti: voci[0][1] };
+  return { id: voci[0][0], voti: voci[0][1] };
+}
+
 function votiRicevutiPerGiocatore(voti) {
   const map = {};
   voti.forEach((v) => {
@@ -221,7 +350,8 @@ function SquadraBadge({ tipo }) {
       style={{
         ...chip(bianchi ? COLORS.bianchi : COLORS.neri, bianchi ? COLORS.pitchDark : COLORS.chalk),
         border: bianchi ? `1px solid rgba(0,0,0,0.15)` : `1px solid rgba(255,255,255,0.15)`,
-        fontWeight: 700,
+        fontWeight: bianchi ? 600 : 700,
+        fontSize: bianchi ? 10.5 : 11,
       }}
     >
       {bianchi ? "⚪ BIANCHI" : "⚫ NERI"}
@@ -232,106 +362,230 @@ function SquadraBadge({ tipo }) {
 /* ---------------------------------------------------------
    PLAYER CARD (figurina)
 --------------------------------------------------------- */
-function PlayerCard({ p, onClick, selected, larghezzaFissa = true }) {
+function PlayerCard({ p, onClick, selected, larghezzaFissa = true, squadra = null, atenuata = false, compatta = false }) {
+  const chiaro = squadra === "bianchi";
+  const nero = squadra === "neri";
+  const testoPrincipale = chiaro ? COLORS.pitchDark : COLORS.chalk;
+  const testoSecondario = chiaro ? "rgba(15,46,29,0.65)" : COLORS.chalkDim;
+  const soprannomeColore = chiaro ? "#8a6a1a" : COLORS.floodlight;
+  const trackBg = chiaro ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.08)";
+  const trackBorder = chiaro ? "rgba(0,0,0,0.05)" : "rgba(255,255,255,0.05)";
+  const statBg = chiaro ? "rgba(0,0,0,0.035)" : "rgba(255,255,255,0.03)";
+  const cardBg = chiaro
+    ? `
+      repeating-linear-gradient(135deg, rgba(0,0,0,0.025) 0px, rgba(0,0,0,0.025) 2px, transparent 2px, transparent 6px),
+      radial-gradient(circle at 30% 0%, rgba(255,200,87,0.28) 0%, transparent 55%),
+      linear-gradient(165deg, #F2F0E9 0%, #d9d4c6 100%)
+    `
+    : nero
+    ? `
+      repeating-linear-gradient(135deg, rgba(255,255,255,0.025) 0px, rgba(255,255,255,0.025) 2px, transparent 2px, transparent 6px),
+      radial-gradient(circle at 30% 0%, rgba(255,255,255,0.06) 0%, transparent 55%),
+      linear-gradient(165deg, #0a0a0a 0%, #000000 100%)
+    `
+    : `
+      repeating-linear-gradient(135deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 2px, transparent 2px, transparent 6px),
+      radial-gradient(circle at 30% 0%, ${COLORS.pitchLine} 0%, transparent 55%),
+      linear-gradient(165deg, ${COLORS.pitchDark} 0%, #050c07 100%)
+    `;
+
+  // Dimensioni: normali oppure compatte (per griglie fitte come Crea Partita)
+  const dim = compatta
+    ? {
+        padOuter: 2, radiusOuter: 12, radiusInner: 10, padInner: "6px 6px 7px",
+        bannerFont: 7.5, bannerPad: "2px 3px", bannerMb: 5, bannerRadius: 4,
+        overallFont: 16, roleFont: 7, ospiteFont: 6.5,
+        fotoSize: 46, fotoMargin: "5px auto 4px", fotoFont: 15,
+        stampBottom: 1, stampRight: -8, stampFont: 6, stampDataFont: 5, stampPad: "0px 4px",
+        nomeFont: 11, sopraFont: 8.5, sopraMb: 2, spacerMb: 4,
+        affLabelFont: 6.5, affBarH: 4,
+        statGap: 3, statMt: 5, statPt: 5, statIconFont: 9, statValFont: 8, statLabelFont: 5,
+      }
+    : {
+        padOuter: 3, radiusOuter: 16, radiusInner: 13, padInner: "10px 11px 11px",
+        bannerFont: 9.5, bannerPad: "3px 4px", bannerMb: 8, bannerRadius: 5,
+        overallFont: 24, roleFont: 8.5, ospiteFont: 7.5,
+        fotoSize: 74, fotoMargin: "8px auto 6px", fotoFont: 24,
+        stampBottom: 6, stampRight: -16, stampFont: 7.5, stampDataFont: 6, stampPad: "1px 6px",
+        nomeFont: 15, sopraFont: 11, sopraMb: 4, spacerMb: 6,
+        affLabelFont: 8.5, affBarH: 5,
+        statGap: 4, statMt: 8, statPt: 8, statIconFont: 12, statValFont: 11, statLabelFont: 6.5,
+      };
+
+  const timbro = p.convocato
+    ? { label: "Convocato", colore: COLORS.green, dataBreve: null }
+    : p.ospite
+    ? null
+    : statoGiocatoreStamp(statoEffettivoGiocatore(p), p.stato_giocatore_scadenza);
+
   return (
     <div
       onClick={onClick}
+      className="figurina-hover"
       style={{
         position: "relative",
         width: larghezzaFissa ? 168 : "100%",
-        borderRadius: 16,
-        padding: 2,
+        borderRadius: dim.radiusOuter,
+        padding: dim.padOuter,
         cursor: onClick ? "pointer" : "default",
-        background: selected
-          ? `linear-gradient(160deg, ${COLORS.floodlight}, #7a5b12)`
-          : `linear-gradient(160deg, #3a4a5c, #16233D)`,
-        boxShadow: selected ? `0 0 0 2px ${COLORS.floodlight}` : "0 4px 14px rgba(0,0,0,0.35)",
-        transition: "transform .15s ease",
+        background: `linear-gradient(155deg, ${COLORS.floodlight} 0%, #8a6a1a 45%, ${COLORS.floodlight} 100%)`,
+        boxShadow: selected
+          ? `0 0 0 2px ${COLORS.floodlight}, 0 6px 18px rgba(0,0,0,0.5)`
+          : "0 4px 14px rgba(0,0,0,0.4)",
+        opacity: atenuata ? 0.55 : 1,
+        transition: "opacity .15s ease, background .15s ease",
       }}
     >
       <div
         style={{
-          background: `linear-gradient(165deg, ${COLORS.navy} 0%, #0c1424 100%)`,
-          borderRadius: 14,
-          padding: "14px 12px 12px",
+          background: cardBg,
+          borderRadius: dim.radiusInner,
+          border: `1px solid rgba(255,200,87,0.35)`,
+          padding: dim.padInner,
           fontFamily: "Inter, sans-serif",
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        {/* Banner superiore */}
+        <div
+          style={{
+            textAlign: "center",
+            fontFamily: "Barlow Condensed, sans-serif",
+            fontWeight: 800,
+            fontSize: dim.bannerFont,
+            letterSpacing: compatta ? 0.6 : 1.2,
+            color: "#0F2E1D",
+            background: `linear-gradient(90deg, #8a6a1a, ${COLORS.floodlight}, #8a6a1a)`,
+            borderRadius: dim.bannerRadius,
+            padding: dim.bannerPad,
+            marginBottom: dim.bannerMb,
+            textTransform: "uppercase",
+            whiteSpace: "nowrap",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+          }}
+        >
+          {compatta ? "CALCETTO" : "Calcetto Totale"}
+        </div>
+
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "0 1px" }}>
           <div
             style={{
               fontFamily: "IBM Plex Mono, monospace",
-              fontSize: 26,
-              fontWeight: 600,
+              fontSize: dim.overallFont,
+              fontWeight: 700,
               color: COLORS.floodlight,
               lineHeight: 1,
+              textShadow: chiaro ? "none" : "0 0 8px rgba(255,200,87,0.35)",
             }}
           >
             {p.overall}
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 9, color: COLORS.chalkDim, textTransform: "uppercase", letterSpacing: 0.6 }}>
+            <div style={{ fontSize: dim.roleFont, color: testoSecondario, textTransform: "uppercase", letterSpacing: 0.6 }}>
               {p.role}
             </div>
             {p.ospite && (
-              <div style={{ fontSize: 8, color: COLORS.red, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, marginTop: 2 }}>
+              <div style={{ fontSize: dim.ospiteFont, color: COLORS.red, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 700, marginTop: 2 }}>
                 Ospite
               </div>
             )}
           </div>
         </div>
 
-        <div
-          style={{
-            width: 72,
-            height: 72,
-            borderRadius: "50%",
-            background: p.foto_url ? "transparent" : p.colore,
-            margin: "10px auto 8px",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            fontFamily: "Barlow Condensed, sans-serif",
-            fontWeight: 700,
-            fontSize: 26,
-            color: COLORS.chalk,
-            border: `2px solid rgba(255,255,255,0.15)`,
-            overflow: "hidden",
-          }}
-        >
-          {p.foto_url ? (
-            <img src={p.foto_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-          ) : (
-            p.initials
+        {/* Foto con anello luminoso e timbro stato */}
+        <div style={{ position: "relative", width: dim.fotoSize, margin: dim.fotoMargin }}>
+          <div
+            style={{
+              width: dim.fotoSize,
+              height: dim.fotoSize,
+              borderRadius: "50%",
+              padding: compatta ? 2 : 3,
+              background: `conic-gradient(from 180deg, ${COLORS.floodlight}, #4dd0e1, ${COLORS.floodlight})`,
+              boxShadow: "0 0 10px rgba(255,200,87,0.3)",
+            }}
+          >
+            <div
+              style={{
+                width: "100%",
+                height: "100%",
+                borderRadius: "50%",
+                background: p.foto_url ? "transparent" : p.colore,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontFamily: "Barlow Condensed, sans-serif",
+                fontWeight: 700,
+                fontSize: dim.fotoFont,
+                color: COLORS.chalk,
+                border: `2px solid ${COLORS.pitchDark}`,
+                overflow: "hidden",
+              }}
+            >
+              {p.foto_url ? (
+                <img src={p.foto_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                p.initials
+              )}
+            </div>
+          </div>
+          {timbro && (
+            <div
+              style={{
+                position: "absolute", bottom: dim.stampBottom, right: dim.stampRight, transform: `rotate(${compatta ? -14 : -16}deg)`,
+                border: `${compatta ? 1.5 : 2}px solid ${timbro.colore}`,
+                color: timbro.colore,
+                background: "rgba(15,46,29,0.6)",
+                borderRadius: 4, padding: dim.stampPad,
+                fontFamily: "Barlow Condensed, sans-serif", fontWeight: 800, fontSize: dim.stampFont,
+                letterSpacing: 0.3, textTransform: "uppercase", whiteSpace: "nowrap",
+                textAlign: "center", lineHeight: 1.2,
+              }}
+            >
+              {timbro.label}
+              {timbro.dataBreve && (
+                <div style={{ fontSize: dim.stampDataFont, letterSpacing: 0.2, fontWeight: 700 }}>fino al {timbro.dataBreve}</div>
+              )}
+            </div>
           )}
         </div>
 
         <div
           style={{
             fontFamily: "Barlow Condensed, sans-serif",
-            fontWeight: 600,
-            fontSize: 16,
-            color: COLORS.chalk,
+            fontWeight: 700,
+            fontSize: dim.nomeFont,
+            color: testoPrincipale,
             textAlign: "center",
             letterSpacing: 0.3,
+            whiteSpace: compatta ? "nowrap" : "normal",
+            overflow: compatta ? "hidden" : "visible",
+            textOverflow: compatta ? "ellipsis" : "clip",
           }}
         >
           {p.name}
         </div>
-        {p.soprannome && (
-          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 10.5, fontStyle: "italic", color: COLORS.floodlight, textAlign: "center", marginBottom: 4 }}>
-            "{p.soprannome}"
-          </div>
-        )}
-        <div style={{ marginBottom: p.soprannome ? 6 : 10 }} />
+        <div
+          style={{
+            fontFamily: "Georgia, serif",
+            fontStyle: "italic",
+            fontSize: dim.sopraFont,
+            color: soprannomeColore,
+            textAlign: "center",
+            marginBottom: dim.sopraMb,
+            visibility: p.soprannome ? "visible" : "hidden",
+          }}
+        >
+          "{p.soprannome || "\u00A0"}"
+        </div>
+        <div style={{ marginBottom: dim.spacerMb }} />
 
         {/* Affidabilita gauge */}
-        <div style={{ marginBottom: 8 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, color: COLORS.chalkDim, marginBottom: 2 }}>
-            <span>AFFIDABILITÀ</span>
+        <div style={{ marginBottom: compatta ? 5 : 8 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: dim.affLabelFont, color: testoSecondario, marginBottom: 2, letterSpacing: 0.3 }}>
+            <span>{compatta ? "AFF." : "AFFIDABILITÀ"}</span>
             <span style={{ color: affidabilitaColor(p.affidabilita), fontWeight: 700 }}>{p.affidabilita}%</span>
           </div>
-          <div style={{ height: 5, background: "rgba(255,255,255,0.08)", borderRadius: 3, overflow: "hidden" }}>
+          <div style={{ height: dim.affBarH, background: trackBg, borderRadius: 3, overflow: "hidden", border: `1px solid ${trackBorder}` }}>
             <div style={{ height: "100%", width: `${p.affidabilita}%`, background: affidabilitaColor(p.affidabilita) }} />
           </div>
         </div>
@@ -340,20 +594,30 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true }) {
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(4, 1fr)",
-            gap: 4,
-            fontSize: 9.5,
-            color: COLORS.chalkDim,
-            fontFamily: "IBM Plex Mono, monospace",
-            marginTop: 8,
-            textAlign: "center",
-            borderTop: "1px solid rgba(255,255,255,0.08)",
-            paddingTop: 8,
+            gap: dim.statGap,
+            marginTop: dim.statMt,
+            borderTop: "1px solid rgba(255,200,87,0.2)",
+            paddingTop: dim.statPt,
           }}
         >
-          <div><div style={{ color: COLORS.chalk, fontWeight: 600 }}>{p.presenze}</div>PRES</div>
-          <div><div style={{ color: COLORS.chalk, fontWeight: 600 }}>{p.assenze}</div>ASS</div>
-          <div><div style={{ color: COLORS.floodlight, fontWeight: 600 }}>{p.gol ?? 0}</div>GOL</div>
-          <div><div style={{ color: COLORS.chalk, fontWeight: 600 }}>{p.mvp}</div>MVP</div>
+          {[
+            { icona: "👕", val: p.presenze, etichetta: "PRES" },
+            { icona: "🚫", val: p.assenze, etichetta: "ASS" },
+            { icona: "⚽", val: p.gol ?? 0, etichetta: "GOL" },
+            { icona: "🏆", val: p.mvp, etichetta: "MVP" },
+          ].map((s) => (
+            <div
+              key={s.etichetta}
+              style={{
+                textAlign: "center", background: statBg, borderRadius: compatta ? 4 : 6,
+                border: "1px solid rgba(255,200,87,0.15)", padding: compatta ? "2px 0 2px" : "4px 0 3px",
+              }}
+            >
+              <div style={{ fontSize: dim.statIconFont, lineHeight: 1 }}>{s.icona}</div>
+              <div style={{ fontFamily: "IBM Plex Mono, monospace", fontWeight: 700, fontSize: dim.statValFont, color: testoPrincipale, marginTop: 2 }}>{s.val}</div>
+              {!compatta && <div style={{ fontSize: dim.statLabelFont, color: testoSecondario, letterSpacing: 0.4, marginTop: 1 }}>{s.etichetta}</div>}
+            </div>
+          ))}
         </div>
       </div>
     </div>
@@ -365,26 +629,29 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true }) {
 --------------------------------------------------------- */
 function RoleSwitcher({ role, setRole, opzioni }) {
   return (
-    <div style={{ display: "flex", gap: 6, background: "rgba(0,0,0,0.25)", padding: 4, borderRadius: 10 }}>
+    <div style={{ display: "flex", gap: 4, background: "rgba(0,0,0,0.25)", padding: 3, borderRadius: 9 }}>
       {opzioni.map((r) => (
         <button
           key={r.id}
           onClick={() => setRole(r.id)}
+          title={r.label}
+          aria-label={r.label}
           style={{
             border: "none",
             cursor: "pointer",
-            padding: "7px 14px",
+            width: 38,
+            height: 38,
             borderRadius: 7,
-            fontFamily: "Inter, sans-serif",
-            fontWeight: 600,
-            fontSize: 12.5,
-            letterSpacing: 0.2,
+            fontSize: 22,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
             background: role === r.id ? COLORS.floodlight : "transparent",
             color: role === r.id ? COLORS.pitchDark : COLORS.chalkDim,
             transition: "all .15s ease",
           }}
         >
-          {r.label}
+          {r.icon}
         </button>
       ))}
     </div>
@@ -396,7 +663,7 @@ function RoleSwitcher({ role, setRole, opzioni }) {
 --------------------------------------------------------- */
 function Tabs({ tabs, active, setActive, badges = {} }) {
   return (
-    <div style={{ display: "flex", gap: 22, borderBottom: `1px solid ${COLORS.pitchLine}`, marginBottom: 20, flexWrap: "wrap" }}>
+    <div className="tabs-scroll" style={{ display: "flex", gap: 22, borderBottom: `1px solid ${COLORS.pitchLine}`, marginBottom: 20, flexWrap: "wrap" }}>
       {tabs.map((t) => (
         <button
           key={t.id}
@@ -436,10 +703,12 @@ function Tabs({ tabs, active, setActive, badges = {} }) {
 /* ---------------------------------------------------------
    DASHBOARD (giocatore)
 --------------------------------------------------------- */
-function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore, onVaiACreaPartita, rimossi = [] }) {
+function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore, onVaiACreaPartita, rimossi = [], conferme = [], onRispondiConvocazione }) {
   const match = matches.find((m) => m.stato === "aperta");
   const me = players.find((p) => p.id === currentPlayerId);
   const [dettaglioAperto, setDettaglioAperto] = useState(false);
+  const [rispostaInCorso, setRispostaInCorso] = useState(false);
+  const [dettaglioFormazioneAperto, setDettaglioFormazioneAperto] = useState(false);
 
   const miaSquadra = match
     ? match.squadraBianchi.includes(currentPlayerId)
@@ -449,22 +718,24 @@ function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore,
       : null
     : null;
 
+  const formazioneEsistente = !!(match && (match.squadraBianchi.length > 0 || match.squadraNeri.length > 0));
+
   return (
     <div>
       <div
-        onClick={sonoOrganizzatore && match ? onVaiACreaPartita : undefined}
+        onClick={formazioneEsistente ? () => setDettaglioFormazioneAperto(true) : undefined}
         style={{
           background: `linear-gradient(120deg, ${COLORS.pitchMid}, ${COLORS.pitchDark})`,
           borderRadius: 16,
           padding: 22,
           border: `1px solid ${COLORS.pitchLine}`,
           marginBottom: 24,
-          cursor: sonoOrganizzatore && match ? "pointer" : "default",
+          cursor: formazioneEsistente ? "pointer" : "default",
         }}
       >
         {match ? (
           <>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
               <div style={chip("rgba(255,200,87,0.15)", COLORS.floodlight)}>{match.giorno.toUpperCase()}</div>
               {miaSquadra && <SquadraBadge tipo={miaSquadra} />}
             </div>
@@ -475,19 +746,73 @@ function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore,
               📍 {match.campo}
             </div>
             <div style={{ fontSize: 11.5, color: COLORS.chalkDim, marginTop: 14, fontFamily: "Inter, sans-serif" }}>
-              {sonoOrganizzatore
-                ? "Tocca qui per modificare la formazione in Crea Partita."
-                : miaSquadra
-                ? "Le formazioni verranno inoltrate nel gruppo WhatsApp dall'organizzatore."
+              {formazioneEsistente
+                ? "📷 Tocca qui per vedere la formazione."
+                : sonoOrganizzatore
+                ? "Vai su \"Crea Partita\" per comporre le squadre."
                 : "L'organizzatore non ha ancora composto le squadre per questa partita."}
             </div>
           </>
         ) : (
           <div style={{ fontFamily: "Inter, sans-serif", color: COLORS.chalkDim, fontSize: 13.5 }}>
-            Nessuna partita in programma al momento. {sonoOrganizzatore ? "Tocca qui per crearne una." : "L'organizzatore ne creerà una a breve."}
+            Nessuna partita in programma al momento. {sonoOrganizzatore ? "Vai su \"Crea Partita\" per crearne una." : "L'organizzatore ne creerà una a breve."}
           </div>
         )}
       </div>
+
+      {match && miaSquadra && (() => {
+        const miaRisposta = conferme.find((c) => c.match_id === match.id && c.player_id === currentPlayerId);
+        if (miaRisposta?.conferma === true) {
+          return (
+            <div style={{ background: "rgba(76,175,109,0.1)", border: `1px solid ${COLORS.green}`, borderRadius: 12, padding: "12px 16px", marginBottom: 24 }}>
+              <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.green }}>
+                ✅ Hai confermato la tua presenza per questa partita.
+              </span>
+            </div>
+          );
+        }
+        return (
+          <div style={{ background: "rgba(255,200,87,0.08)", border: `1px solid rgba(255,200,87,0.3)`, borderRadius: 12, padding: "14px 16px", marginBottom: 24 }}>
+            <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: COLORS.chalk, marginBottom: 10 }}>
+              📋 Sei stato convocato per {match.giorno} {formattaDataIT(match.data)} — ci sarai?
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              <button
+                onClick={async () => {
+                  setRispostaInCorso(true);
+                  await onRispondiConvocazione(match.id, true);
+                  setRispostaInCorso(false);
+                }}
+                disabled={rispostaInCorso}
+                style={{
+                  padding: "8px 16px", borderRadius: 8, border: "none", cursor: rispostaInCorso ? "not-allowed" : "pointer",
+                  background: COLORS.green, color: COLORS.pitchDark, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12.5,
+                }}
+              >
+                ✅ Sì, ci sarò
+              </button>
+              <button
+                onClick={async () => {
+                  setRispostaInCorso(true);
+                  await onRispondiConvocazione(match.id, false);
+                  setRispostaInCorso(false);
+                }}
+                disabled={rispostaInCorso}
+                style={{
+                  padding: "8px 16px", borderRadius: 8, border: `1px solid ${COLORS.red}`, cursor: rispostaInCorso ? "not-allowed" : "pointer",
+                  background: "transparent", color: COLORS.red, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12.5,
+                }}
+              >
+                ❌ Non posso venire
+              </button>
+            </div>
+          </div>
+        );
+      })()}
+
+      {dettaglioFormazioneAperto && match && (
+        <AnteprimaFormazioneModal match={match} players={players} onChiudi={() => setDettaglioFormazioneAperto(false)} />
+      )}
 
       {me && (
         <>
@@ -561,16 +886,16 @@ function DettaglioGiocatore({ player, matches, voti, onChiudi }) {
           background: COLORS.navy, borderRadius: 16, padding: 22, border: `1px solid rgba(255,255,255,0.1)`,
         }}
       >
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div>
-            <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 19, color: COLORS.chalk }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginBottom: 16 }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 19, color: COLORS.chalk, wordBreak: "break-word" }}>
               {player.name}{player.soprannome ? ` "${player.soprannome}"` : ""}
             </div>
             <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: COLORS.chalkDim }}>Storico voti ricevuti</div>
           </div>
           <button
             onClick={onChiudi}
-            style={{ background: "none", border: "none", color: COLORS.chalkDim, fontSize: 20, cursor: "pointer", lineHeight: 1 }}
+            style={{ background: "none", border: "none", color: COLORS.chalkDim, fontSize: 20, cursor: "pointer", lineHeight: 1, flexShrink: 0 }}
           >
             ✕
           </button>
@@ -593,7 +918,7 @@ function DettaglioGiocatore({ player, matches, voti, onChiudi }) {
               <div
                 key={match.id}
                 style={{
-                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6,
                   background: "rgba(255,255,255,0.04)", borderRadius: 8, padding: "9px 12px",
                 }}
               >
@@ -615,7 +940,7 @@ function DettaglioGiocatore({ player, matches, voti, onChiudi }) {
 /* ---------------------------------------------------------
    STORICO PARTITE
 --------------------------------------------------------- */
-function Storico({ players, matches, rimossi = [], voti = [] }) {
+function Storico({ players, matches, rimossi = [], voti = [], votiMvp = [] }) {
   const passate = matches
     .filter((m) => m.stato === "storico" && m.risultato)
     .sort((a, b) => new Date(b.data) - new Date(a.data));
@@ -674,7 +999,7 @@ function Storico({ players, matches, rimossi = [], voti = [] }) {
     ctx.textAlign = "center";
     ctx.fillStyle = "#B9C4BC";
     ctx.font = "24px sans-serif";
-    ctx.fillText("Calcetto Martedì & Giovedì", W / 2, H - 30);
+    ctx.fillText("Calcetto Totale", W / 2, H - 30);
 
     const url = canvas.toDataURL("image/jpeg", 0.92);
     const a = document.createElement("a");
@@ -698,39 +1023,44 @@ function Storico({ players, matches, rimossi = [], voti = [] }) {
             .filter(([, n]) => n > 0)
             .sort((a, b) => b[1] - a[1]);
           const autogol = Object.entries(m.autogol || {}).filter(([, n]) => n > 0);
+          const mvpPartita = calcolaMvp(m.id, votiMvp);
           return (
             <div key={m.id} style={{ background: COLORS.navy, borderRadius: 12, padding: "16px 18px" }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 10 }}>
                 <div>
                   <div style={chip("rgba(255,255,255,0.08)", COLORS.chalkDim)}>{m.giorno.toUpperCase()} · {formattaDataIT(m.data)}</div>
                 </div>
-                {m.mvp && (
-                  <span style={chip("rgba(255,200,87,0.15)", COLORS.floodlight)}>🏅 MVP: {nomeById(players, m.mvp, rimossi)}</span>
+                {mvpPartita?.id && (
+                  <span style={chip("rgba(255,200,87,0.15)", COLORS.floodlight)}>🏅 MVP: {nomeById(players, mvpPartita.id, rimossi)} ({mvpPartita.voti} voti)</span>
+                )}
+                {mvpPartita?.pari && (
+                  <span style={chip("rgba(255,255,255,0.08)", COLORS.chalkDim)}>🏅 MVP in parità</span>
                 )}
               </div>
 
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 18, margin: "16px 0" }}>
-                <div style={{ textAlign: "right", flex: 1 }}>
-                  <SquadraBadge tipo="bianchi" />
-                  <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: COLORS.chalkDim, marginTop: 6, lineHeight: 1.6 }}>
-                    {m.squadraBianchi.map((id) => nomeById(players, id, rimossi)).join(" · ")}
-                  </div>
-                </div>
+              <div style={{ textAlign: "center", margin: "14px 0 16px" }}>
                 <div
                   style={{
                     fontFamily: "IBM Plex Mono, monospace",
-                    fontSize: 30,
+                    fontSize: 34,
                     fontWeight: 600,
                     color: COLORS.chalk,
-                    whiteSpace: "nowrap",
-                    padding: "0 6px",
                   }}
                 >
                   {m.risultato.bianchi} — {m.risultato.neri}
                 </div>
-                <div style={{ textAlign: "left", flex: 1 }}>
+              </div>
+
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 4 }}>
+                <div>
+                  <SquadraBadge tipo="bianchi" />
+                  <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: COLORS.chalkDim, marginTop: 6, lineHeight: 1.7 }}>
+                    {m.squadraBianchi.map((id) => nomeById(players, id, rimossi)).join(" · ")}
+                  </div>
+                </div>
+                <div>
                   <SquadraBadge tipo="neri" />
-                  <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: COLORS.chalkDim, marginTop: 6, lineHeight: 1.6 }}>
+                  <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12, color: COLORS.chalkDim, marginTop: 6, lineHeight: 1.7 }}>
                     {m.squadraNeri.map((id) => nomeById(players, id, rimossi)).join(" · ")}
                   </div>
                 </div>
@@ -799,7 +1129,7 @@ function Storico({ players, matches, rimossi = [], voti = [] }) {
                       })
                       .sort((a, b) => (b.media || 0) - (a.media || 0))
                       .map((r) => (
-                        <div key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "rgba(255,255,255,0.04)", borderRadius: 7, padding: "7px 10px" }}>
+                        <div key={r.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 6, background: "rgba(255,255,255,0.04)", borderRadius: 7, padding: "7px 10px" }}>
                           <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: COLORS.chalk }}>
                             {nomeById(players, r.id, rimossi)}
                           </span>
@@ -822,7 +1152,7 @@ function Storico({ players, matches, rimossi = [], voti = [] }) {
 /* ---------------------------------------------------------
    VOTAZIONE POST-PARTITA con controllo anomalie
 --------------------------------------------------------- */
-function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri }) {
+function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri, votiMvp = [], onVotaMvp }) {
   const partite = matches.filter((m) => m.stato === "storico").sort((a, b) => new Date(b.data) - new Date(a.data));
   const match = partite[0];
   const partecipantiIds = match
@@ -833,13 +1163,33 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
   const sonoPartecipante =
     match && [...match.squadraBianchi, ...match.squadraNeri].includes(currentPlayerId) && !match.buche.includes(currentPlayerId);
 
+  // I voti si chiudono 2 giorni dopo la partita
+  const scadenzaVoti = (() => {
+    if (!match) return null;
+    const [ore, minuti] = (match.ora || "00:00").split(":").map((n) => parseInt(n, 10) || 0);
+    const d = new Date(match.data);
+    d.setHours(ore, minuti, 0, 0);
+    d.setDate(d.getDate() + 2);
+    return d;
+  })();
+  const votazioniChiuse = scadenzaVoti ? new Date() > scadenzaVoti : false;
+  const scadenzaTesto = scadenzaVoti
+    ? scadenzaVoti.toLocaleDateString("it-IT", { day: "2-digit", month: "long", hour: "2-digit", minute: "2-digit" })
+    : "";
+
   const [miGol, setMiGol] = useState(0);
   const [salvataggioGolInCorso, setSalvataggioGolInCorso] = useState(false);
   const [golSalvato, setGolSalvato] = useState(false);
 
+  const [mvpScelto, setMvpScelto] = useState("");
+  const [mvpInCorso, setMvpInCorso] = useState(false);
+  const mioVotoMvp = votiMvp.find((v) => v.match_id === match?.id && v.votante_id === currentPlayerId);
+
   useEffect(() => {
     setMiGol(match?.gol?.[currentPlayerId] || 0);
     setGolSalvato(false);
+    setMvpScelto(mioVotoMvp?.votato_id || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [match?.id, currentPlayerId]);
 
   const salvaMiGol = async () => {
@@ -849,35 +1199,40 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
     setGolSalvato(true);
   };
 
+  const votaMvp = async (votatoId) => {
+    setMvpScelto(votatoId);
+    setMvpInCorso(true);
+    await onVotaMvp(match.id, votatoId);
+    setMvpInCorso(false);
+  };
+
   const [votiEsistenti, setVotiEsistenti] = useState([]);
   const [caricato, setCaricato] = useState(false);
   const [voti, setVoti] = useState({});
   const [inviati, setInviati] = useState({});
+  const [inModifica, setInModifica] = useState({});
   const [invioInCorso, setInvioInCorso] = useState({});
 
   const SOGLIA_SCARTO = 2;
 
-  useEffect(() => {
-    let annullato = false;
-    async function carica() {
-      if (!match) {
-        setCaricato(true);
-        return;
-      }
-      const { data } = await supabase.from("votes").select("votante_id, votato_id, voto").eq("match_id", match.id);
-      if (annullato) return;
-      setVotiEsistenti(data || []);
-      const gia = {};
-      (data || []).forEach((v) => {
-        if (v.votante_id === currentPlayerId) gia[v.votato_id] = true;
-      });
-      setInviati(gia);
+  const caricaVotiEsistenti = async () => {
+    if (!match) {
       setCaricato(true);
+      return;
     }
-    carica();
-    return () => {
-      annullato = true;
-    };
+    const { data } = await supabase.from("votes").select("votante_id, votato_id, voto").eq("match_id", match.id);
+    setVotiEsistenti(data || []);
+    const gia = {};
+    (data || []).forEach((v) => {
+      if (v.votante_id === currentPlayerId) gia[v.votato_id] = true;
+    });
+    setInviati(gia);
+    setCaricato(true);
+  };
+
+  useEffect(() => {
+    caricaVotiEsistenti();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [match?.id, currentPlayerId]);
 
   const consensoPer = (playerId) => {
@@ -898,13 +1253,27 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
 
   const invia = async (playerId, val) => {
     setInvioInCorso((s) => ({ ...s, [playerId]: true }));
-    await onVota(match.id, playerId, val);
-    setInvioInCorso((s) => ({ ...s, [playerId]: false }));
+    // Aggiornamento ottimistico: mostra subito il voto come inviato, senza aspettare il giro di rete
+    setVotiEsistenti((prev) => {
+      const altri = prev.filter((v) => !(v.votante_id === currentPlayerId && v.votato_id === playerId));
+      return [...altri, { votante_id: currentPlayerId, votato_id: playerId, voto: val }];
+    });
     setInviati((s) => ({ ...s, [playerId]: true }));
+    setInModifica((s) => ({ ...s, [playerId]: false }));
+    setInvioInCorso((s) => ({ ...s, [playerId]: false }));
+    await onVota(match.id, playerId, val);
+    // Riallinea in background con eventuali voti di altri (per il calcolo dello scarto anomalo)
+    caricaVotiEsistenti();
+  };
+
+  const modificaVoto = (playerId) => {
+    const votoPrecedente = votiEsistenti.find((v) => v.votante_id === currentPlayerId && v.votato_id === playerId);
+    if (votoPrecedente) setVoto(playerId, Number(votoPrecedente.voto));
+    setInModifica((s) => ({ ...s, [playerId]: true }));
   };
 
   if (!caricato) {
-    return <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>Caricamento…</div>;
+    return <Spinner testo="Caricamento…" />;
   }
 
   if (!match) {
@@ -918,7 +1287,16 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
       </div>
       <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 18 }}>
         Voti anonimi da 1 a 10. La media finale esclude il voto più alto e più basso ricevuti.
+        {!votazioniChiuse && scadenzaTesto && ` Puoi votare o modificare fino al ${scadenzaTesto}.`}
       </div>
+
+      {votazioniChiuse && (
+        <div style={{ background: "rgba(255,200,87,0.08)", border: `1px solid rgba(255,200,87,0.3)`, borderRadius: 10, padding: 12, marginBottom: 18 }}>
+          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: COLORS.chalk }}>
+            ⏳ Le votazioni per questa partita si sono chiuse il {scadenzaTesto} (2 giorni dopo la partita). Non è più possibile votare né modificare i voti dati.
+          </div>
+        </div>
+      )}
 
       {sonoPartecipante && (
         <div style={{ background: COLORS.navy, borderRadius: 12, padding: "14px 16px", marginBottom: 18, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
@@ -955,6 +1333,44 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
         </div>
       )}
 
+      {sonoPartecipante && compagni.length > 0 && (
+        <div style={{ background: COLORS.navy, borderRadius: 12, padding: "14px 16px", marginBottom: 18 }}>
+          <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: COLORS.chalk, marginBottom: 2 }}>
+            🏅 Chi è stato l'MVP della partita?
+          </div>
+          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11, color: COLORS.chalkDim, marginBottom: 12 }}>
+            {votazioniChiuse
+              ? "Le votazioni per l'MVP di questa partita sono chiuse."
+              : "Un solo voto, non puoi votare te stesso. Vince chi riceve più voti dai compagni."}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {compagni.map((p) => {
+              const selezionato = mvpScelto === p.id;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => votaMvp(p.id)}
+                  disabled={mvpInCorso || votazioniChiuse}
+                  style={{
+                    display: "flex", alignItems: "center", gap: 7, padding: "6px 12px 6px 6px", borderRadius: 999,
+                    border: `1px solid ${selezionato ? COLORS.floodlight : "rgba(255,255,255,0.15)"}`,
+                    background: selezionato ? "rgba(255,200,87,0.15)" : "transparent",
+                    cursor: mvpInCorso || votazioniChiuse ? "not-allowed" : "pointer",
+                    opacity: votazioniChiuse && !selezionato ? 0.5 : 1,
+                  }}
+                >
+                  <MiniAvatar p={p} size={24} />
+                  <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12.5, color: selezionato ? COLORS.floodlight : COLORS.chalk }}>
+                    {p.name}
+                  </span>
+                  {selezionato && <span style={{ color: COLORS.floodlight, fontSize: 12 }}>✓</span>}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
         {compagni.length === 0 && (
           <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>Nessun compagno da votare per questa partita.</div>
@@ -963,26 +1379,47 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
           const val = voti[p.id] ?? 6;
           const anomalia = scartoAnomalo(p.id, val);
           const done = inviati[p.id];
+          const modificando = inModifica[p.id];
+          const mostraSlider = (!done || modificando) && !votazioniChiuse;
           const inCorso = invioInCorso[p.id];
+          const mioVotoDato = votiEsistenti.find((v) => v.votante_id === currentPlayerId && v.votato_id === p.id);
           return (
             <div
               key={p.id}
               style={{
                 background: COLORS.navy,
-                border: `1px solid ${anomalia && !done ? COLORS.red : "rgba(255,255,255,0.08)"}`,
+                border: `1px solid ${anomalia && mostraSlider ? COLORS.red : "rgba(255,255,255,0.08)"}`,
                 borderRadius: 12,
                 padding: "14px 16px",
               }}
             >
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8, marginBottom: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
                   <MiniAvatar p={p} size={34} />
-                  <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 14.5, color: COLORS.chalk }}>
+                  <div style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 14.5, color: COLORS.chalk, wordBreak: "break-word" }}>
                     {p.name}
                   </div>
                 </div>
-                {done ? (
-                  <span style={chip("rgba(76,175,109,0.15)", COLORS.green)}>Voto inviato ✓</span>
+                {done && !modificando ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={chip("rgba(76,175,109,0.15)", COLORS.green)}>
+                      Voto inviato{mioVotoDato ? `: ${Number(mioVotoDato.voto).toFixed(1)}` : ""} ✓
+                    </span>
+                    {!votazioniChiuse && (
+                      <button
+                        onClick={() => modificaVoto(p.id)}
+                        style={{
+                          background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 7,
+                          color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 11,
+                          padding: "4px 9px", cursor: "pointer",
+                        }}
+                      >
+                        ✏️ Modifica
+                      </button>
+                    )}
+                  </div>
+                ) : !done && votazioniChiuse ? (
+                  <span style={chip("rgba(255,255,255,0.08)", COLORS.chalkDim)}>⏳ Tempo scaduto</span>
                 ) : (
                   <span style={{ fontFamily: "IBM Plex Mono, monospace", fontSize: 20, fontWeight: 600, color: COLORS.floodlight }}>
                     {val.toFixed(1)}
@@ -990,7 +1427,7 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
                 )}
               </div>
 
-              {!done && (
+              {mostraSlider && (
                 <>
                   <input
                     type="range"
@@ -1020,24 +1457,37 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
                       ⚠️ Questo voto si discosta di {Math.abs(anomalia.diff).toFixed(1)} punti dalla media degli altri voti ricevuti finora ({anomalia.consenso.toFixed(1)}). Conferma solo se motivato.
                     </div>
                   )}
-                  <button
-                    onClick={() => invia(p.id, val)}
-                    disabled={inCorso}
-                    style={{
-                      marginTop: 10,
-                      padding: "7px 14px",
-                      borderRadius: 7,
-                      border: "none",
-                      cursor: inCorso ? "not-allowed" : "pointer",
-                      fontFamily: "Inter, sans-serif",
-                      fontWeight: 700,
-                      fontSize: 12.5,
-                      background: anomalia ? "rgba(255,255,255,0.1)" : COLORS.floodlight,
-                      color: anomalia ? COLORS.chalk : COLORS.pitchDark,
-                    }}
-                  >
-                    {inCorso ? "Invio…" : anomalia ? "Conferma comunque" : "Invia voto"}
-                  </button>
+                  <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                    <button
+                      onClick={() => invia(p.id, val)}
+                      disabled={inCorso}
+                      style={{
+                        padding: "7px 14px",
+                        borderRadius: 7,
+                        border: "none",
+                        cursor: inCorso ? "not-allowed" : "pointer",
+                        fontFamily: "Inter, sans-serif",
+                        fontWeight: 700,
+                        fontSize: 12.5,
+                        background: anomalia ? "rgba(255,255,255,0.1)" : COLORS.floodlight,
+                        color: anomalia ? COLORS.chalk : COLORS.pitchDark,
+                      }}
+                    >
+                      {inCorso ? "Invio…" : anomalia ? "Conferma comunque" : modificando ? "Salva modifica" : "Invia voto"}
+                    </button>
+                    {modificando && (
+                      <button
+                        onClick={() => setInModifica((s) => ({ ...s, [p.id]: false }))}
+                        style={{
+                          padding: "7px 14px", borderRadius: 7, border: `1px solid rgba(255,255,255,0.15)`,
+                          background: "transparent", color: COLORS.chalkDim, cursor: "pointer",
+                          fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12.5,
+                        }}
+                      >
+                        Annulla
+                      </button>
+                    )}
+                  </div>
                 </>
               )}
             </div>
@@ -1060,7 +1510,6 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
 
   const [gol, setGol] = useState({});
   const [autogol, setAutogol] = useState({});
-  const [mvp, setMvp] = useState(null);
   const [buche, setBuche] = useState([]);
   const [salvataggioInCorso, setSalvataggioInCorso] = useState(false);
   const [salvato, setSalvato] = useState(false);
@@ -1077,7 +1526,6 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
     if (!match) return;
     setGol(match.gol || {});
     setAutogol(match.autogol || {});
-    setMvp(match.mvp || null);
     setBuche(match.buche || []);
     setSalvato(false);
     setConfermaEliminazione(false);
@@ -1094,7 +1542,6 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
     setBuche((b) => (b.includes(id) ? b.filter((x) => x !== id) : [...b, id]));
     setGol((g) => ({ ...g, [id]: 0 }));
     setAutogol((a) => ({ ...a, [id]: 0 }));
-    if (mvp === id) setMvp(null);
   };
 
   const totaleGolInseriti = Object.values(gol).reduce((a, b) => a + b, 0);
@@ -1111,7 +1558,7 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
 
   const salva = async () => {
     setSalvataggioInCorso(true);
-    await onSalvaRisultato(match.id, { bianchi, neri, gol, autogol, mvp, buche });
+    await onSalvaRisultato(match.id, { bianchi, neri, gol, autogol, buche });
     setSalvataggioInCorso(false);
     setSalvato(true);
   };
@@ -1145,7 +1592,7 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
         style={{
           width: "100%", maxWidth: 340, padding: "9px 12px", borderRadius: 8, marginBottom: 20,
           border: `1px solid rgba(255,255,255,0.15)`, background: COLORS.navy,
-          color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+          color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
         }}
       >
         {partiteGestibili.map((m) => (
@@ -1197,18 +1644,6 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
                 <span style={{ fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5, color: COLORS.chalk, textDecoration: haDatoBuca ? "line-through" : "none" }}>
                   {p.name}
                 </span>
-                {!haDatoBuca && (
-                  <button
-                    onClick={() => setMvp(p.id)}
-                    title="Segna come MVP"
-                    style={{
-                      border: "none", background: "none", cursor: "pointer", fontSize: 14,
-                      filter: mvp === p.id ? "none" : "grayscale(1) opacity(0.4)",
-                    }}
-                  >
-                    🏅
-                  </button>
-                )}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <button
@@ -1317,7 +1752,7 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
                   <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 12.5 }}>Nessun voto ancora.</div>
                 )}
                 {votiPartita.map((v, i) => (
-                  <div key={i} style={{ display: "flex", justifyContent: "space-between", background: "rgba(229,83,60,0.06)", borderRadius: 7, padding: "7px 10px" }}>
+                  <div key={i} style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 6, background: "rgba(229,83,60,0.06)", borderRadius: 7, padding: "7px 10px" }}>
                     <span style={{ fontFamily: "Inter, sans-serif", fontSize: 12.5, color: COLORS.chalk }}>
                       {nomeById(players, v.votante_id)} → {nomeById(players, v.votato_id)}
                     </span>
@@ -1364,13 +1799,370 @@ function Risultato({ players, matches, onSalvaRisultato, onEliminaPartita, voti 
 /* ---------------------------------------------------------
    FORMAZIONE — scelta squadre + generazione immagine da condividere
 --------------------------------------------------------- */
-function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggiungiGiocatore }) {
+/* ---------------------------------------------------------
+   DISEGNO CONDIVISO DELL'IMMAGINE FORMAZIONE
+   (usato sia dall'anteprima/download in Crea Partita, sia
+   dall'anteprima di sola lettura apribile dalla Dashboard)
+--------------------------------------------------------- */
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+const caricaImmagineFormazione = (url) =>
+  new Promise((resolve) => {
+    if (!url) return resolve(null);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
+  });
+
+const ORDINE_RUOLI_IMG = ["Portiere", "Difensore", "Esterno Destro", "Esterno Sinistro", "Centrocampo", "Attaccante"];
+const SIGLA_RUOLO_IMG = {
+  Portiere: "GK", Difensore: "DIF", "Esterno Destro": "ED", "Esterno Sinistro": "ES",
+  Centrocampo: "CC", Attaccante: "ATT",
+};
+const ALTEZZA_HEADER_IMG = 64;
+const ALTEZZA_PANNELLO_IMG = 780;
+
+function ordinaSquadraImg(lista) {
+  const portiere = lista.filter((p) => p.ruolo_campo === "Portiere");
+  const resto = lista
+    .filter((p) => p.ruolo_campo !== "Portiere")
+    .sort((a, b) => ORDINE_RUOLI_IMG.indexOf(a.ruolo_campo) - ORDINE_RUOLI_IMG.indexOf(b.ruolo_campo));
+  return [...portiere, ...resto].slice(0, 6);
+}
+
+function calcolaSlotMezzalunaImg(numeroMovimento) {
+  const gkFx = 0.34, gkFy = 0.88;
+  const n = Math.max(numeroMovimento, 0);
+  const arco = [];
+  for (let i = 0; i < n; i++) {
+    const t = n > 1 ? i / (n - 1) : 0.5;
+    const baseFx = 0.34 + (0.82 - 0.34) * t;
+    const baseFy = 0.7 - (0.7 - 0.14) * t;
+    const curvatura = Math.sin(t * Math.PI) * -0.04;
+    arco.push({ fx: baseFx + curvatura, fy: baseFy });
+  }
+  return [{ fx: gkFx, fy: gkFy }, ...arco];
+}
+
+function disegnaPannelloSquadraImg(ctx, x, y, w, h, titolo, lista, immagini, chiaro) {
+  const sfondoPannello = ctx.createLinearGradient(x, y, x, y + h);
+  sfondoPannello.addColorStop(0, "#1B4332");
+  sfondoPannello.addColorStop(1, "#050c07");
+  ctx.fillStyle = sfondoPannello;
+  roundRect(ctx, x, y, w, h, 16);
+  ctx.fill();
+
+  ctx.save();
+  roundRect(ctx, x, y, w, h, 16);
+  ctx.clip();
+  const radiale = ctx.createRadialGradient(x + w * 0.3, y, 10, x + w * 0.3, y, w * 0.85);
+  radiale.addColorStop(0, "rgba(27,67,50,0.55)");
+  radiale.addColorStop(1, "rgba(27,67,50,0)");
+  ctx.fillStyle = radiale;
+  ctx.fillRect(x, y, w, h);
+  ctx.restore();
+
+  ctx.strokeStyle = "rgba(255,200,87,0.35)";
+  ctx.lineWidth = 2;
+  roundRect(ctx, x, y, w, h, 16);
+  ctx.stroke();
+
+  ctx.save();
+  roundRect(ctx, x, y, w, h, 16);
+  ctx.clip();
+  ctx.fillStyle = chiaro ? "#F2F0E9" : "#111418";
+  ctx.fillRect(x, y, w, ALTEZZA_HEADER_IMG);
+  ctx.restore();
+  ctx.fillStyle = chiaro ? "#0F2E1D" : "#F2F0E9";
+  ctx.font = "bold 30px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText(titolo, x + w / 2, y + 42);
+
+  const immaginePerId = {};
+  lista.forEach((p, i) => { immaginePerId[p.id] = immagini[i]; });
+
+  const areaY = y + ALTEZZA_HEADER_IMG;
+  const areaH = h - ALTEZZA_HEADER_IMG;
+  const raggio = 42;
+
+  const goalW = 26, goalH = 130;
+  const goalX = x + w - 56;
+  const goalY = areaY + areaH * 0.42 - goalH / 2;
+  ctx.strokeStyle = "rgba(242,240,233,0.55)";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(goalX, goalY, goalW, goalH);
+  ctx.lineWidth = 1;
+  for (let gy = goalY + 12; gy < goalY + goalH; gy += 12) {
+    ctx.beginPath();
+    ctx.moveTo(goalX, gy);
+    ctx.lineTo(goalX + goalW, gy);
+    ctx.stroke();
+  }
+  for (let gx = goalX + 8; gx < goalX + goalW; gx += 8) {
+    ctx.beginPath();
+    ctx.moveTo(gx, goalY);
+    ctx.lineTo(gx, goalY + goalH);
+    ctx.stroke();
+  }
+
+  ctx.save();
+  ctx.translate(goalX - 18, areaY + areaH * 0.42);
+  ctx.rotate(-Math.PI / 2);
+  ctx.fillStyle = "rgba(242,240,233,0.4)";
+  ctx.font = "bold 12px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("ATTACCO", 0, -6);
+  ctx.fillText("VERSO PORTA", 0, 8);
+  ctx.restore();
+
+  const squadraOrdinata = ordinaSquadraImg(lista);
+  const haPortiere = squadraOrdinata[0]?.ruolo_campo === "Portiere";
+  const numeroMovimento = haPortiere ? squadraOrdinata.length - 1 : squadraOrdinata.length;
+  const slotMezzaluna = calcolaSlotMezzalunaImg(numeroMovimento);
+
+  squadraOrdinata.forEach((p, i) => {
+    const slot = slotMezzaluna[i];
+    const cx = x + w * slot.fx;
+    const cy = areaY + areaH * slot.fy;
+    const img = immaginePerId[p.id];
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, raggio + 4, 0, Math.PI * 2);
+    const grad = ctx.createLinearGradient(cx - raggio, cy - raggio, cx + raggio, cy + raggio);
+    grad.addColorStop(0, "#FFC857");
+    grad.addColorStop(1, "#8a6a1a");
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, raggio, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    if (img) {
+      ctx.drawImage(img, cx - raggio, cy - raggio, raggio * 2, raggio * 2);
+    } else {
+      ctx.fillStyle = p.colore || "#2D6A4F";
+      ctx.fillRect(cx - raggio, cy - raggio, raggio * 2, raggio * 2);
+      ctx.fillStyle = "#F2F0E9";
+      ctx.font = "bold 28px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(p.initials || "", cx, cy + 2);
+      ctx.textBaseline = "alphabetic";
+    }
+    ctx.restore();
+
+    ctx.fillStyle = "rgba(242,240,233,0.6)";
+    ctx.font = "bold 12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(SIGLA_RUOLO_IMG[p.ruolo_campo] || "", cx, cy - raggio - 10);
+
+    const parti = (p.name || "").trim().split(/\s+/);
+    let primaRiga = parti[0] || "";
+    let secondaRiga = parti.slice(1).join(" ");
+    const nomeX = cx - raggio - 10;
+    const larghezzaMax = w * slot.fx - 20;
+    ctx.fillStyle = "#F2F0E9";
+    ctx.font = "18px sans-serif";
+    ctx.textAlign = "right";
+    while (ctx.measureText(primaRiga).width > larghezzaMax && primaRiga.length > 2) {
+      primaRiga = primaRiga.slice(0, -1);
+    }
+    while (ctx.measureText(secondaRiga).width > larghezzaMax && secondaRiga.length > 2) {
+      secondaRiga = secondaRiga.slice(0, -1);
+    }
+    if (secondaRiga) {
+      ctx.fillText(primaRiga, nomeX, cy - 6);
+      ctx.fillText(secondaRiga, nomeX, cy + 15);
+    } else {
+      ctx.fillText(primaRiga, nomeX, cy + 5);
+    }
+  });
+}
+
+async function disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri) {
+  const [immaginiBianchi, immaginiNeri] = await Promise.all([
+    Promise.all(listaBianchi.map((p) => caricaImmagineFormazione(p.foto_url))),
+    Promise.all(listaNeri.map((p) => caricaImmagineFormazione(p.foto_url))),
+  ]);
+
+  const ctx = canvas.getContext("2d");
+  const W = 1080;
+  const panelY = 260;
+  const panelH = ALTEZZA_PANNELLO_IMG;
+  const H = panelY + panelH + 90;
+  canvas.width = W;
+  canvas.height = H;
+
+  ctx.fillStyle = "#0F2E1D";
+  ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  ctx.strokeStyle = "rgba(255,255,255,0.04)";
+  ctx.lineWidth = 2;
+  for (let d = -H; d < W; d += 9) {
+    ctx.beginPath();
+    ctx.moveTo(d, 0);
+    ctx.lineTo(d + H, H);
+    ctx.stroke();
+  }
+  ctx.restore();
+  const bgRadiale = ctx.createRadialGradient(W * 0.2, 0, 50, W * 0.2, 0, W);
+  bgRadiale.addColorStop(0, "rgba(27,67,50,0.55)");
+  bgRadiale.addColorStop(1, "rgba(15,46,29,0)");
+  ctx.fillStyle = bgRadiale;
+  ctx.fillRect(0, 0, W, H);
+
+  ctx.strokeStyle = "#FFC857";
+  ctx.lineWidth = 6;
+  roundRect(ctx, 12, 12, W - 24, H - 24, 20);
+  ctx.stroke();
+  ctx.strokeStyle = "rgba(255,200,87,0.4)";
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, 24, 24, W - 48, H - 48, 16);
+  ctx.stroke();
+
+  const bannerGrad = ctx.createLinearGradient(60, 0, W - 60, 0);
+  bannerGrad.addColorStop(0, "#8a6a1a");
+  bannerGrad.addColorStop(0.5, "#FFC857");
+  bannerGrad.addColorStop(1, "#8a6a1a");
+  ctx.fillStyle = bannerGrad;
+  roundRect(ctx, 60, 46, W - 120, 58, 10);
+  ctx.fill();
+  ctx.fillStyle = "#0F2E1D";
+  ctx.font = "bold 28px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("FORMAZIONE GARA · CALCETTO TOTALE", W / 2, 84);
+
+  ctx.fillStyle = "#F2F0E9";
+  ctx.font = "bold 42px sans-serif";
+  ctx.fillText(`${match.giorno.toUpperCase()} ${formattaDataIT(match.data)} · ${match.ora}`, W / 2, 162);
+  ctx.font = "25px sans-serif";
+  ctx.fillStyle = "#B9C4BC";
+  ctx.fillText(match.campo, W / 2, 198);
+
+  const panelW = (W - 60 * 2 - 60) / 2;
+  const xBianchi = 60;
+  const xNeri = 60 + panelW + 60;
+
+  disegnaPannelloSquadraImg(ctx, xBianchi, panelY, panelW, panelH, "⚪ BIANCHI", listaBianchi, immaginiBianchi, true);
+  disegnaPannelloSquadraImg(ctx, xNeri, panelY, panelW, panelH, "⚫ NERI", listaNeri, immaginiNeri, false);
+
+  const cxVs = W / 2;
+  const cyVs = panelY + panelH / 2;
+  ctx.beginPath();
+  ctx.arc(cxVs, cyVs, 34, 0, Math.PI * 2);
+  const vsGrad = ctx.createLinearGradient(cxVs - 34, cyVs - 34, cxVs + 34, cyVs + 34);
+  vsGrad.addColorStop(0, "#FFC857");
+  vsGrad.addColorStop(1, "#8a6a1a");
+  ctx.fillStyle = vsGrad;
+  ctx.fill();
+  ctx.strokeStyle = "#0F2E1D";
+  ctx.lineWidth = 3;
+  ctx.stroke();
+  ctx.fillStyle = "#0F2E1D";
+  ctx.font = "bold 24px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("VS", cxVs, cyVs + 1);
+  ctx.textBaseline = "alphabetic";
+
+  ctx.fillStyle = "#B9C4BC";
+  ctx.font = "22px sans-serif";
+  ctx.fillText("Calcetto Totale", W / 2, H - 30);
+}
+
+/* ---------------------------------------------------------
+   ANTEPRIMA FORMAZIONE (sola lettura, apribile dalla Dashboard)
+--------------------------------------------------------- */
+function AnteprimaFormazioneModal({ match, players, onChiudi }) {
+  const canvasRef = useRef(null);
+
+  const listaBianchi = players.filter((p) => match.squadraBianchi.includes(p.id));
+  const listaNeri = players.filter((p) => match.squadraNeri.includes(p.id));
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let annullato = false;
+    disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri).then(() => {
+      if (annullato) return;
+    });
+    return () => {
+      annullato = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [match.id]);
+
+  const scarica = () => {
+    const canvas = canvasRef.current;
+    try {
+      const url = canvas.toDataURL("image/jpeg", 0.92);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `formazione-${match.giorno.toLowerCase()}-${match.data}.jpg`;
+      a.click();
+    } catch (e) {
+      alert("Non riesco a generare l'immagine per un problema di permessi del browser.");
+    }
+  };
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)", display: "flex",
+        alignItems: "center", justifyContent: "center", padding: 16, zIndex: 60,
+      }}
+      onClick={onChiudi}
+    >
+      <div
+        style={{ maxWidth: 460, width: "100%", maxHeight: "90vh", overflowY: "auto", borderRadius: 16 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <canvas ref={canvasRef} style={{ width: "100%", display: "block", borderRadius: 16, boxShadow: "0 12px 32px rgba(0,0,0,0.5)" }} />
+        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+          <button
+            onClick={scarica}
+            style={{
+              flex: 1, padding: "11px 0", borderRadius: 10, border: "none", cursor: "pointer",
+              background: COLORS.floodlight, color: COLORS.pitchDark, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 13.5,
+            }}
+          >
+            ⬇️ Scarica immagine
+          </button>
+          <button
+            onClick={onChiudi}
+            style={{
+              padding: "11px 18px", borderRadius: 10, border: `1px solid rgba(255,255,255,0.25)`, cursor: "pointer",
+              background: "rgba(0,0,0,0.4)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13.5,
+            }}
+          >
+            Chiudi
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggiungiGiocatore, conferme = [] }) {
   const match = matches.find((m) => m.stato === "aperta");
   const canvasRef = useRef(null);
 
   const [squadre, setSquadre] = useState({});
   const [salvataggioInCorso, setSalvataggioInCorso] = useState(false);
   const [salvato, setSalvato] = useState(false);
+  const [ricercaGiocatore, setRicercaGiocatore] = useState("");
 
   const [nuovoGiorno, setNuovoGiorno] = useState("Giovedì");
   const [nuovaData, setNuovaData] = useState("");
@@ -1440,89 +2232,28 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !match) return;
-    const ctx = canvas.getContext("2d");
-    const W = 1080, H = 1350;
-    canvas.width = W;
-    canvas.height = H;
-
-    // sfondo
-    const bg = ctx.createLinearGradient(0, 0, W, H);
-    bg.addColorStop(0, "#1B4332");
-    bg.addColorStop(1, "#0F2E1D");
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
-
-    // header
-    ctx.textAlign = "center";
-    ctx.fillStyle = "#FFC857";
-    ctx.font = "bold 40px sans-serif";
-    ctx.fillText("⚽ CALCETTO", W / 2, 110);
-    ctx.fillStyle = "#F2F0E9";
-    ctx.font = "bold 56px sans-serif";
-    ctx.fillText(`${match.giorno.toUpperCase()} ${formattaDataIT(match.data)}`, W / 2, 180);
-    ctx.font = "32px sans-serif";
-    ctx.fillStyle = "#B9C4BC";
-    ctx.fillText(`${match.ora} · ${match.campo}`, W / 2, 226);
-
-    // colonne
-    const colY = 300;
-    const colW = 460;
-    const colH = 900;
-    const xBianchi = 60;
-    const xNeri = W - 60 - colW;
-
-    // pannello bianchi
-    ctx.fillStyle = "#F2F0E9";
-    roundRect(ctx, xBianchi, colY, colW, colH, 24);
-    ctx.fill();
-    ctx.fillStyle = "#0F2E1D";
-    ctx.font = "bold 42px sans-serif";
-    ctx.fillText("⚪ BIANCHI", xBianchi + colW / 2, colY + 70);
-    ctx.font = "34px sans-serif";
-    listaBianchi.forEach((p, i) => {
-      ctx.fillText(p.name, xBianchi + colW / 2, colY + 140 + i * 60);
+    let annullato = false;
+    disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri).then(() => {
+      if (annullato) return;
     });
-
-    // pannello neri
-    ctx.fillStyle = "#111418";
-    roundRect(ctx, xNeri, colY, colW, colH, 24);
-    ctx.fill();
-    ctx.strokeStyle = "rgba(255,255,255,0.15)";
-    ctx.lineWidth = 2;
-    roundRect(ctx, xNeri, colY, colW, colH, 24);
-    ctx.stroke();
-    ctx.fillStyle = "#F2F0E9";
-    ctx.font = "bold 42px sans-serif";
-    ctx.fillText("⚫ NERI", xNeri + colW / 2, colY + 70);
-    ctx.font = "34px sans-serif";
-    listaNeri.forEach((p, i) => {
-      ctx.fillText(p.name, xNeri + colW / 2, colY + 140 + i * 60);
-    });
-
-    // footer
-    ctx.fillStyle = "#B9C4BC";
-    ctx.font = "26px sans-serif";
-    ctx.fillText("Calcetto Martedì & Giovedì", W / 2, H - 40);
+    return () => {
+      annullato = true;
+    };
   }, [squadre, match, listaBianchi.length, listaNeri.length]);
 
-  function roundRect(ctx, x, y, w, h, r) {
-    ctx.beginPath();
-    ctx.moveTo(x + r, y);
-    ctx.arcTo(x + w, y, x + w, y + h, r);
-    ctx.arcTo(x + w, y + h, x, y + h, r);
-    ctx.arcTo(x, y + h, x, y, r);
-    ctx.arcTo(x, y, x + w, y, r);
-    ctx.closePath();
-  }
 
   const scarica = () => {
     if (!match) return;
     const canvas = canvasRef.current;
-    const url = canvas.toDataURL("image/jpeg", 0.92);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `formazione-${match.giorno.toLowerCase()}-${match.data.replace(/\s/g, "-")}.jpg`;
-    a.click();
+    try {
+      const url = canvas.toDataURL("image/jpeg", 0.92);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `formazione-${match.giorno.toLowerCase()}-${match.data.replace(/\s/g, "-")}.jpg`;
+      a.click();
+    } catch (e) {
+      alert("Non riesco a generare l'immagine con le foto per un problema di permessi del browser. Riprova; se persiste, avvisami.");
+    }
   };
 
   if (!match) {
@@ -1544,7 +2275,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
                 style={{
                   width: "100%", padding: "9px 12px", borderRadius: 8,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               >
                 <option style={{ background: COLORS.navy }}>Martedì</option>
@@ -1558,7 +2289,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
                 style={{
                   width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               />
             </div>
@@ -1569,7 +2300,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
                 style={{
                   width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               />
             </div>
@@ -1580,7 +2311,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
                 style={{
                   width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               />
             </div>
@@ -1612,6 +2343,17 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
         Tocca un giocatore per assegnarlo a Bianchi, Neri o escluderlo dalla partita. Salva, poi scarica l'immagine e inoltrala dal tuo WhatsApp.
       </div>
 
+      {(() => {
+        const rifiuti = conferme.filter((c) => c.match_id === match.id && c.conferma === false);
+        if (rifiuti.length === 0) return null;
+        const nomi = rifiuti.map((r) => players.find((p) => p.id === r.player_id)?.name || "Qualcuno").join(", ");
+        return (
+          <div style={{ background: "rgba(229,83,60,0.1)", border: `1px solid ${COLORS.red}`, borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontFamily: "Inter, sans-serif", fontSize: 12.5, color: "#ffb3a3" }}>
+            ⚠️ {nomi} {rifiuti.length === 1 ? "ha comunicato" : "hanno comunicato"} di non poter venire a questa partita — {rifiuti.length === 1 ? "è già stato tolto" : "sono già stati tolti"} dalla formazione.
+          </div>
+        );
+      })()}
+
       <div style={{ marginBottom: 18 }}>
         {!mostraAggiungiGiocatore ? (
           <button
@@ -1633,7 +2375,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
                 style={{
                   flex: 1, minWidth: 150, padding: "8px 10px", borderRadius: 7,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               />
               <select
@@ -1641,7 +2383,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
                 onChange={(e) => setRuoloOspite(e.target.value)}
                 style={{
                   padding: "8px 10px", borderRadius: 7, border: `1px solid rgba(255,255,255,0.15)`,
-                  background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                  background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               >
                 {ruoliOspite.map((r) => (
@@ -1672,26 +2414,101 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
         )}
       </div>
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 22 }}>
-        {players.map((p) => {
-          const stato = squadre[p.id] || "escluso";
-          const bg = stato === "bianchi" ? COLORS.bianchi : stato === "neri" ? COLORS.neri : "rgba(255,255,255,0.06)";
-          const color = stato === "bianchi" ? COLORS.pitchDark : stato === "neri" ? COLORS.chalk : COLORS.chalkDim;
-          const border = stato === "neri" ? "1px solid rgba(255,255,255,0.2)" : "1px solid transparent";
-          return (
-            <button
-              key={p.id}
-              onClick={() => toggle(p.id)}
-              style={{
-                padding: "8px 14px", borderRadius: 999, border, cursor: "pointer",
-                fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 13, background: bg, color,
-              }}
-            >
-              {stato === "bianchi" ? "⚪" : stato === "neri" ? "⚫" : "—"} {p.name}
-            </button>
-          );
-        })}
+      <div style={{ position: "relative", marginBottom: 14, maxWidth: 320 }}>
+        <input
+          value={ricercaGiocatore}
+          onChange={(e) => setRicercaGiocatore(e.target.value)}
+          placeholder="🔍 Cerca giocatore…"
+          style={{
+            width: "100%", boxSizing: "border-box", padding: "9px 34px 9px 12px", borderRadius: 9,
+            border: `1px solid rgba(255,255,255,0.15)`, background: COLORS.navy,
+            color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
+          }}
+        />
+        {ricercaGiocatore && (
+          <button
+            onClick={() => setRicercaGiocatore("")}
+            style={{
+              position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)",
+              background: "none", border: "none", color: COLORS.chalkDim, fontSize: 14, cursor: "pointer", padding: 4,
+            }}
+          >
+            ✕
+          </button>
+        )}
       </div>
+
+      {(() => {
+        const gruppiRuolo = [
+          { titolo: "🧤 Portiere", ruoli: ["Portiere"] },
+          { titolo: "🛡️ Difesa", ruoli: ["Difensore"] },
+          { titolo: "↔️ Esterni", ruoli: ["Esterno Destro", "Esterno Sinistro"] },
+          { titolo: "⚙️ Centrocampo", ruoli: ["Centrocampo"] },
+          { titolo: "⚔️ Attacco", ruoli: ["Attaccante"] },
+        ];
+        const filtrati = players.filter((p) => p.name.toLowerCase().includes(ricercaGiocatore.trim().toLowerCase()));
+        const assegnati = new Set();
+        const bande = gruppiRuolo
+          .map((g) => {
+            const lista = filtrati.filter((p) => g.ruoli.includes(p.ruolo_campo));
+            lista.forEach((p) => assegnati.add(p.id));
+            return { ...g, lista };
+          })
+          .filter((g) => g.lista.length > 0);
+        const senzaRuolo = filtrati.filter((p) => !assegnati.has(p.id));
+        if (senzaRuolo.length > 0) bande.push({ titolo: "Altri", ruoli: [], lista: senzaRuolo });
+
+        return (
+          <div
+            style={{
+              background: `repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 40px, transparent 40px, transparent 80px), linear-gradient(180deg, #1B4332 0%, #163a29 100%)`,
+              borderRadius: 16,
+              border: `1px solid rgba(255,255,255,0.1)`,
+              padding: "16px 12px",
+              marginBottom: 22,
+            }}
+          >
+            {bande.map((b, i) => (
+              <div key={b.titolo} style={{ marginBottom: i < bande.length - 1 ? 16 : 0 }}>
+                <div
+                  style={{
+                    fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 12.5, color: COLORS.chalk,
+                    textAlign: "center", letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 8,
+                    opacity: 0.85,
+                  }}
+                >
+                  {b.titolo}
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", gap: 8 }}>
+                  {b.lista.map((p) => {
+                    const stato = squadre[p.id] || "escluso";
+                    return (
+                      <div key={p.id} style={{ width: 100 }}>
+                        <PlayerCard
+                          p={p}
+                          onClick={() => toggle(p.id)}
+                          larghezzaFissa={false}
+                          compatta
+                          squadra={stato === "bianchi" ? "bianchi" : stato === "neri" ? "neri" : null}
+                          atenuata={stato === "escluso"}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                {i < bande.length - 1 && (
+                  <div style={{ height: 1, background: "rgba(255,255,255,0.08)", marginTop: 16 }} />
+                )}
+              </div>
+            ))}
+          </div>
+        );
+      })()}
+      {ricercaGiocatore && players.filter((p) => p.name.toLowerCase().includes(ricercaGiocatore.trim().toLowerCase())).length === 0 && (
+        <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 12.5, marginTop: -14, marginBottom: 22 }}>
+          Nessun giocatore trovato per "{ricercaGiocatore}".
+        </div>
+      )}
 
       <div style={{ display: "flex", gap: 24, alignItems: "flex-start", flexWrap: "wrap" }}>
         <canvas
@@ -1746,9 +2563,6 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
               ⬇️ Scarica immagine JPG
             </button>
           </div>
-          <div style={{ fontSize: 11.5, color: COLORS.chalkDim, marginTop: 10, lineHeight: 1.6, fontFamily: "Inter, sans-serif" }}>
-            Nessuna conferma richiesta ai giocatori: l'organizzatore compone le squadre e la manda nel gruppo WhatsApp com'è sempre stato fatto.
-          </div>
         </div>
       </div>
     </div>
@@ -1758,7 +2572,7 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
 /* ---------------------------------------------------------
    PANNELLO ADMIN
 --------------------------------------------------------- */
-function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiungiGiocatore, richiesteRegistrazione = [], onApprovaRegistrazione, onRifiutaRegistrazione, onPromuoviRuolo, onModificaGiocatore, onEliminaGiocatoreOspite, onUnisciGiocatori }) {
+function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiungiGiocatore, richiesteRegistrazione = [], onApprovaRegistrazione, onRifiutaRegistrazione, onPromuoviRuolo, onModificaGiocatore, onEliminaGiocatoreOspite, onUnisciGiocatori, slackWebhookUrl = "", onSalvaSlackWebhook }) {
   const roleOptions = ["organizer", "allenatore", "player"];
   const roleLabel = { organizer: "Organizzatore", allenatore: "Allenatore", player: "Giocatore" };
   const roleColor = { organizer: COLORS.floodlight, allenatore: "#7EC8E3", player: COLORS.green };
@@ -1773,8 +2587,14 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
   const [profiloTenere, setProfiloTenere] = useState("");
   const [profiloEliminare, setProfiloEliminare] = useState("");
   const [confermaUnione, setConfermaUnione] = useState(false);
+  const [approvandoId, setApprovandoId] = useState(null);
+  const [erroreApprovazione, setErroreApprovazione] = useState({});
   const [unioneInCorso, setUnioneInCorso] = useState(false);
   const [erroreUnione, setErroreUnione] = useState("");
+  const [slackInput, setSlackInput] = useState(slackWebhookUrl);
+  const [slackSalvataggio, setSlackSalvataggio] = useState(false);
+  const [slackSalvato, setSlackSalvato] = useState(false);
+  const [slackErrore, setSlackErrore] = useState("");
 
   const ospitiDisponibili = players.filter((p) => p.ospite);
 
@@ -1835,7 +2655,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
                       style={{
                         width: "100%", padding: "8px 10px", borderRadius: 7,
                         border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                        color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 12.5,
+                        color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                       }}
                     >
                       <option value="" style={{ background: COLORS.navy }}>— Crea come nuovo giocatore —</option>
@@ -1846,16 +2666,32 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
                   </div>
                 )}
 
+                {erroreApprovazione[r.id] && (
+                  <div style={{ background: "rgba(229,83,60,0.1)", border: `1px solid ${COLORS.red}`, borderRadius: 7, padding: "7px 10px", marginBottom: 8, fontFamily: "Inter, sans-serif", fontSize: 11.5, color: "#ffb3a3" }}>
+                    ⚠️ {erroreApprovazione[r.id]}
+                  </div>
+                )}
+
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
-                    onClick={() => onApprovaRegistrazione(r.id, collegamentoScelto[r.id] || null)}
+                    onClick={async () => {
+                      setErroreApprovazione((s) => ({ ...s, [r.id]: null }));
+                      setApprovandoId(r.id);
+                      try {
+                        await onApprovaRegistrazione(r.id, collegamentoScelto[r.id] || null);
+                      } catch (e) {
+                        setErroreApprovazione((s) => ({ ...s, [r.id]: e.message || "Errore durante l'approvazione." }));
+                      }
+                      setApprovandoId(null);
+                    }}
+                    disabled={approvandoId === r.id}
                     style={{
-                      padding: "7px 14px", borderRadius: 7, border: "none", cursor: "pointer",
+                      padding: "7px 14px", borderRadius: 7, border: "none", cursor: approvandoId === r.id ? "not-allowed" : "pointer",
                       fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12,
                       background: COLORS.green, color: COLORS.pitchDark,
                     }}
                   >
-                    ✓ Approva
+                    {approvandoId === r.id ? "Approvazione…" : "✓ Approva"}
                   </button>
                   <button
                     onClick={() => onRifiutaRegistrazione(r.id)}
@@ -1924,7 +2760,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
               style={{
                 width: "100%", boxSizing: "border-box", padding: "9px 12px", borderRadius: 8,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             />
           </div>
@@ -1936,7 +2772,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
               style={{
                 width: "100%", padding: "9px 12px", borderRadius: 8,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             >
               {ruoliCampo.map((r) => (
@@ -1983,7 +2819,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
               style={{
                 width: "100%", padding: "9px 12px", borderRadius: 8,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             >
               <option value="" style={{ background: COLORS.navy }}>— Scegli —</option>
@@ -2000,7 +2836,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
               style={{
                 width: "100%", padding: "9px 12px", borderRadius: 8,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             >
               <option value="" style={{ background: COLORS.navy }}>— Scegli —</option>
@@ -2143,7 +2979,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
                   placeholder="Nome"
                   style={{
                     flex: 1, minWidth: 140, padding: "7px 10px", borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`,
-                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 12.5,
+                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                   }}
                 />
                 <input
@@ -2152,7 +2988,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
                   placeholder="Soprannome"
                   style={{
                     flex: 1, minWidth: 120, padding: "7px 10px", borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`,
-                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 12.5,
+                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                   }}
                 />
                 <select
@@ -2160,7 +2996,7 @@ function Admin({ players, richieste, onCompletaRichiesta, rimossi = [], onAggiun
                   onChange={(e) => setBozzeModifica((b) => ({ ...b, [p.id]: { ...bozza, ruolo_campo: e.target.value } }))}
                   style={{
                     padding: "7px 10px", borderRadius: 6, border: `1px solid rgba(255,255,255,0.15)`,
-                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 12.5,
+                    background: "rgba(255,255,255,0.05)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                   }}
                 >
                   {ruoliCampo.map((r) => (
@@ -2285,7 +3121,7 @@ function ChatInterna({ messaggi, players, currentPlayerId, onInvia, onElimina })
           placeholder="Scrivi un messaggio…"
           style={{
             flex: 1, padding: "11px 14px", borderRadius: 10, border: `1px solid rgba(255,255,255,0.15)`,
-            background: COLORS.navy, color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+            background: COLORS.navy, color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
           }}
         />
         <button
@@ -2310,6 +3146,8 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
   const [nome, setNome] = useState(myProfile?.name || "");
   const [soprannome, setSoprannome] = useState(myProfile?.soprannome || "");
   const [ruolo, setRuolo] = useState(myProfile?.ruolo_campo || "Centrocampo");
+  const [statoGiocatore, setStatoGiocatore] = useState(myProfile?.stato_giocatore || "disponibile");
+  const [scadenzaStato, setScadenzaStato] = useState(myProfile?.stato_giocatore_scadenza || "");
   const [email, setEmail] = useState(session?.user?.email || "");
   const [fotoFile, setFotoFile] = useState(null);
   const [anteprimaFoto, setAnteprimaFoto] = useState(myProfile?.foto_url || null);
@@ -2321,6 +3159,11 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
   const [errore, setErrore] = useState("");
 
   const ruoliCampo = ["Portiere", "Difensore", "Esterno Destro", "Esterno Sinistro", "Centrocampo", "Attaccante"];
+  const statiGiocatore = [
+    { id: "disponibile", label: "✅ Disponibile", colore: COLORS.green },
+    { id: "infortunato", label: "🤕 Infortunato", colore: COLORS.red },
+    { id: "non_disponibile", label: "🚫 Non disponibile", colore: COLORS.chalkDim },
+  ];
 
   const scegliFoto = (e) => {
     const file = e.target.files?.[0];
@@ -2333,7 +3176,7 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
     setErrore("");
     setSalvataggioInCorso(true);
     try {
-      await onSalvaProfilo({ nome, soprannome, ruolo, fotoFile });
+      await onSalvaProfilo({ nome, soprannome, ruolo, fotoFile, statoGiocatore, scadenzaStato: statoGiocatore === "disponibile" ? null : scadenzaStato || null });
       setSalvato(true);
       setFotoFile(null);
     } catch (e) {
@@ -2404,7 +3247,7 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
               style={{
                 width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 7,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             />
           </div>
@@ -2415,7 +3258,7 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
               style={{
                 width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 7,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             />
           </div>
@@ -2426,13 +3269,54 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
               style={{
                 width: "100%", padding: "8px 10px", borderRadius: 7,
                 border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             >
               {ruoliCampo.map((r) => (
                 <option key={r} value={r} style={{ background: COLORS.navy }}>{r}</option>
               ))}
             </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: COLORS.chalkDim, marginBottom: 4 }}>Disponibilità</div>
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {statiGiocatore.map((s) => {
+                const attivo = statoGiocatore === s.id;
+                return (
+                  <button
+                    key={s.id}
+                    onClick={() => setStatoGiocatore(s.id)}
+                    style={{
+                      padding: "7px 10px", borderRadius: 7, cursor: "pointer",
+                      border: `1px solid ${attivo ? s.colore : "rgba(255,255,255,0.15)"}`,
+                      background: attivo ? s.colore : "transparent",
+                      color: attivo ? COLORS.pitchDark : COLORS.chalkDim,
+                      fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12,
+                    }}
+                  >
+                    {s.label}
+                  </button>
+                );
+              })}
+            </div>
+            {statoGiocatore !== "disponibile" && (
+              <div style={{ marginTop: 8 }}>
+                <div style={{ fontSize: 11, color: COLORS.chalkDim, marginBottom: 4 }}>Fino a quando? (facoltativo)</div>
+                <input
+                  type="date"
+                  value={scadenzaStato}
+                  onChange={(e) => setScadenzaStato(e.target.value)}
+                  style={{
+                    padding: "8px 10px", borderRadius: 7,
+                    border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+                    color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
+                  }}
+                />
+                <div style={{ fontSize: 10.5, color: COLORS.chalkDim, marginTop: 4 }}>
+                  Dopo questa data tornerai automaticamente "Disponibile". Lascia vuoto se non lo sai ancora.
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -2458,7 +3342,7 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
             style={{
               flex: 1, minWidth: 180, boxSizing: "border-box", padding: "8px 10px", borderRadius: 7,
               border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13,
+              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
             }}
           />
           <button
@@ -2483,15 +3367,19 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
   );
 }
 
-function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfile, session, onSalvaProfilo, onCambiaEmail }) {
+function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfile, session, onSalvaProfilo, onCambiaEmail, onAggiornaConsenso }) {
   const righe = [
-    { label: "Trattamento dati (presenze, voti, statistiche)", val: consensi?.consensoDati },
-    { label: "Utilizzo foto per la figurina", val: consensi?.consensoFoto },
-    { label: "Conferma maggiore età", val: consensi?.maggiorenne },
-    ...(consensi?.metodo === "google"
-      ? [{ label: "Importazione foto profilo Google", val: consensi?.importaFotoGoogle }]
-      : []),
+    { chiave: "consenso_dati", label: "Trattamento dati (presenze, voti, statistiche)", val: consensi?.consensoDati },
+    { chiave: "consenso_foto", label: "Utilizzo foto per la figurina", val: consensi?.consensoFoto },
+    { chiave: "maggiorenne", label: "Conferma maggiore età", val: consensi?.maggiorenne },
   ];
+  const [inCorso, setInCorso] = useState(null);
+
+  const concedi = async (chiave) => {
+    setInCorso(chiave);
+    await onAggiornaConsenso(chiave);
+    setInCorso(null);
+  };
 
   return (
     <div>
@@ -2499,7 +3387,7 @@ function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfi
         I miei dati
       </div>
       <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 20 }}>
-        Consensi forniti in fase di registrazione{consensi?.timestamp ? ` · ${consensi.timestamp}` : ""} · accesso con {consensi?.metodo === "google" ? "Google" : "email e password"}
+        Consensi forniti in fase di registrazione{consensi?.timestamp ? ` · ${consensi.timestamp}` : ""}
       </div>
 
       <ModificaProfilo myProfile={myProfile} session={session} onSalvaProfilo={onSalvaProfilo} onCambiaEmail={onCambiaEmail} />
@@ -2508,15 +3396,29 @@ function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfi
           <div
             key={r.label}
             style={{
-              display: "flex", alignItems: "center", justifyContent: "space-between",
+              display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8,
               padding: "12px 14px",
               borderBottom: i < righe.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
             }}
           >
             <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13.5, color: COLORS.chalk }}>{r.label}</span>
-            <span style={chip(r.val ? "rgba(76,175,109,0.15)" : "rgba(229,83,60,0.15)", r.val ? COLORS.green : COLORS.red)}>
-              {r.val ? "✓ Concesso" : "Non concesso"}
-            </span>
+            {r.val ? (
+              <span style={chip("rgba(76,175,109,0.15)", COLORS.green)}>✓ Concesso</span>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={chip("rgba(229,83,60,0.15)", COLORS.red)}>Non concesso</span>
+                <button
+                  onClick={() => concedi(r.chiave)}
+                  disabled={inCorso === r.chiave}
+                  style={{
+                    padding: "5px 10px", borderRadius: 7, border: "none", cursor: inCorso === r.chiave ? "not-allowed" : "pointer",
+                    background: COLORS.floodlight, color: COLORS.pitchDark, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 11.5,
+                  }}
+                >
+                  {inCorso === r.chiave ? "…" : "Concedi ora"}
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -2562,7 +3464,6 @@ function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfi
 function Onboarding({ onRegistrationSent }) {
   const [mode, setMode] = useState("register"); // register | login
   const [step, setStep] = useState("welcome"); // welcome -> form -> consenso -> inviata
-  const [metodo, setMetodo] = useState(null); // "google" | "email"
   const [nome, setNome] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -2574,7 +3475,6 @@ function Onboarding({ onRegistrationSent }) {
   const [consensoDati, setConsensoDati] = useState(false);
   const [consensoFoto, setConsensoFoto] = useState(false);
   const [maggiorenne, setMaggiorenne] = useState(false);
-  const [importaFotoGoogle, setImportaFotoGoogle] = useState(false);
   const [infoAperta, setInfoAperta] = useState(false);
 
   const [caricamento, setCaricamento] = useState(false);
@@ -2582,18 +3482,8 @@ function Onboarding({ onRegistrationSent }) {
 
   const puoConfermare = consensoDati && consensoFoto && maggiorenne;
 
-  const scegliMetodo = async (m) => {
+  const iniziaRegistrazione = () => {
     setErrore("");
-    if (m === "google") {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: "google",
-        options: { redirectTo: window.location.origin },
-      });
-      if (error) setErrore("Google non è configurato correttamente: " + error.message);
-      // se va a buon fine il browser viene reindirizzato a Google, non serve altro qui
-      return;
-    }
-    setMetodo(m);
     setStep("form");
   };
 
@@ -2683,7 +3573,7 @@ function Onboarding({ onRegistrationSent }) {
     <div
       style={{
         minHeight: "100%",
-        background: `radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
+        background: `repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 2px, transparent 2px, transparent 7px), radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
@@ -2695,7 +3585,7 @@ function Onboarding({ onRegistrationSent }) {
       <div style={{ width: "100%", maxWidth: 420, background: COLORS.navy, borderRadius: 18, padding: 30, border: `1px solid rgba(255,255,255,0.08)` }}>
         <div style={{ textAlign: "center", marginBottom: 22 }}>
           <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 800, fontSize: 24, color: COLORS.chalk }}>
-            ⚽ CALCETTO MARTEDÌ & GIOVEDÌ
+            ⚽ CALCETTO TOTALE
           </div>
           <div style={{ fontSize: 12, color: COLORS.chalkDim, marginTop: 4 }}>Entra per vedere convocazioni, voti e la tua figurina</div>
         </div>
@@ -2731,7 +3621,7 @@ function Onboarding({ onRegistrationSent }) {
                 style={{
                   width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               />
             </div>
@@ -2742,7 +3632,7 @@ function Onboarding({ onRegistrationSent }) {
                 style={{
                   width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
                   border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                  color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                 }}
               />
             </div>
@@ -2783,18 +3673,7 @@ function Onboarding({ onRegistrationSent }) {
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             <ErroreBox />
             <button
-              onClick={() => scegliMetodo("google")}
-              style={{
-                display: "flex", alignItems: "center", justifyContent: "center", gap: 10,
-                padding: "12px 0", borderRadius: 10, border: "1px solid rgba(255,255,255,0.15)",
-                background: COLORS.chalk, color: "#1a1a1a", fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer",
-              }}
-            >
-              <span style={{ fontSize: 16 }}>G</span> Continua con Google
-            </button>
-            <div style={{ textAlign: "center", fontSize: 11, color: COLORS.chalkDim, margin: "2px 0" }}>oppure</div>
-            <button
-              onClick={() => scegliMetodo("email")}
+              onClick={iniziaRegistrazione}
               style={{
                 padding: "12px 0", borderRadius: 10, border: "1px solid rgba(255,255,255,0.2)",
                 background: "rgba(255,255,255,0.06)", color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 14, cursor: "pointer",
@@ -2805,7 +3684,7 @@ function Onboarding({ onRegistrationSent }) {
           </div>
         )}
 
-        {step === "form" && metodo === "email" && (
+        {step === "form" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {[
               { label: "Nome e cognome", val: nome, set: setNome, type: "text" },
@@ -2819,7 +3698,7 @@ function Onboarding({ onRegistrationSent }) {
                   style={{
                     width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
                     border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-                    color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+                    color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
                   }}
                 />
               </div>
@@ -2913,130 +3792,15 @@ function Onboarding({ onRegistrationSent }) {
 
         {step === "inviata" && (
           <div style={{ textAlign: "center", padding: "10px 0" }}>
-            <div style={{ fontSize: 40, marginBottom: 14 }}>⏳</div>
+            <div style={{ fontSize: 40, marginBottom: 14 }}>✅</div>
             <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 19, color: COLORS.chalk, marginBottom: 8 }}>
-              Richiesta inviata
+              Registrazione effettuata correttamente
             </div>
             <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, lineHeight: 1.6 }}>
-              L'organizzatore deve approvare la tua registrazione prima che tu possa accedere. Riceverai conferma appena verrà gestita — se eri già in rosa come ospite, i tuoi dati verranno collegati automaticamente.
+              Attendi che l'organizzatore autorizzi il tuo account. Verrai avvisato appena attivo.
             </div>
           </div>
         )}
-      </div>
-    </div>
-  );
-}
-
-/* ---------------------------------------------------------
-   COMPLETA PROFILO — dopo il primo accesso con Google
---------------------------------------------------------- */
-function CompletaProfiloGoogle({ session, onCompletato }) {
-  const nomeSuggerito = session?.user?.user_metadata?.full_name || session?.user?.user_metadata?.name || "";
-  const [nome, setNome] = useState(nomeSuggerito);
-  const [consensoDati, setConsensoDati] = useState(false);
-  const [consensoFoto, setConsensoFoto] = useState(false);
-  const [maggiorenne, setMaggiorenne] = useState(false);
-  const [caricamento, setCaricamento] = useState(false);
-  const [errore, setErrore] = useState("");
-
-  const puoConfermare = nome.trim() && consensoDati && consensoFoto && maggiorenne;
-
-  const Checkbox = ({ checked, onChange, children }) => (
-    <label style={{ display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer", fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalk, lineHeight: 1.5 }}>
-      <input
-        type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)}
-        style={{ marginTop: 3, width: 16, height: 16, accentColor: COLORS.floodlight, flexShrink: 0 }}
-      />
-      <span>{children}</span>
-    </label>
-  );
-
-  const completa = async () => {
-    setErrore("");
-    setCaricamento(true);
-    const initials = nome.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
-    const { error } = await supabase.from("profiles").insert({
-      auth_user_id: session.user.id,
-      name: nome.trim(),
-      initials,
-      consenso_dati: consensoDati,
-      consenso_foto: consensoFoto,
-      maggiorenne,
-      consenso_timestamp: new Date().toISOString(),
-    });
-    setCaricamento(false);
-    if (error) {
-      setErrore(error.message);
-      return;
-    }
-    onCompletato();
-  };
-
-  return (
-    <div
-      style={{
-        minHeight: "100%", background: `radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
-        display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px", fontFamily: "Inter, sans-serif",
-      }}
-    >
-      <style>{FONT_IMPORT}</style>
-      <div style={{ width: "100%", maxWidth: 420, background: COLORS.navy, borderRadius: 18, padding: 30, border: `1px solid rgba(255,255,255,0.08)` }}>
-        <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 700, fontSize: 19, color: COLORS.chalk, marginBottom: 6 }}>
-          Ultimo passaggio
-        </div>
-        <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, marginBottom: 18 }}>
-          Accesso con Google riuscito ({session?.user?.email}). Conferma il tuo nome e i consensi per inviare la richiesta all'organizzatore.
-        </div>
-
-        {errore && (
-          <div style={{ background: "rgba(229,83,60,0.1)", border: `1px solid ${COLORS.red}`, borderRadius: 8, padding: "8px 10px", fontFamily: "Inter, sans-serif", fontSize: 12, color: "#ffb3a3", marginBottom: 12 }}>
-            {errore}
-          </div>
-        )}
-
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 11.5, color: COLORS.chalkDim, marginBottom: 4 }}>Nome e cognome</div>
-          <input
-            value={nome} onChange={(e) => setNome(e.target.value)}
-            style={{
-              width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
-              border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
-            }}
-          />
-        </div>
-
-        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 18 }}>
-          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 12 }}>
-            <Checkbox checked={consensoDati} onChange={setConsensoDati}>
-              Acconsento al trattamento dei miei dati (nome, presenze, voti, statistiche) visibili agli altri membri del gruppo.
-            </Checkbox>
-          </div>
-          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 12 }}>
-            <Checkbox checked={consensoFoto} onChange={setConsensoFoto}>
-              Acconsento all'utilizzo della mia foto per la figurina personale.
-            </Checkbox>
-          </div>
-          <div style={{ background: "rgba(255,255,255,0.04)", borderRadius: 10, padding: 12 }}>
-            <Checkbox checked={maggiorenne} onChange={setMaggiorenne}>
-              Confermo di essere maggiorenne.
-            </Checkbox>
-          </div>
-        </div>
-
-        <button
-          onClick={completa}
-          disabled={!puoConfermare || caricamento}
-          style={{
-            width: "100%", padding: "12px 0", borderRadius: 10, border: "none",
-            cursor: puoConfermare && !caricamento ? "pointer" : "not-allowed",
-            background: puoConfermare && !caricamento ? COLORS.floodlight : "rgba(255,255,255,0.1)",
-            color: puoConfermare && !caricamento ? COLORS.pitchDark : COLORS.chalkDim,
-            fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 14,
-          }}
-        >
-          {caricamento ? "Invio…" : "Invia richiesta di registrazione"}
-        </button>
       </div>
     </div>
   );
@@ -3074,7 +3838,7 @@ function ImpostaNuovaPassword({ onImpostata }) {
   return (
     <div
       style={{
-        minHeight: "100%", background: `radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
+        minHeight: "100%", background: `repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 2px, transparent 2px, transparent 7px), radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
         display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px", fontFamily: "Inter, sans-serif",
       }}
     >
@@ -3100,7 +3864,7 @@ function ImpostaNuovaPassword({ onImpostata }) {
             style={{
               width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
               border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
             }}
           />
         </div>
@@ -3111,7 +3875,7 @@ function ImpostaNuovaPassword({ onImpostata }) {
             style={{
               width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 8,
               border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
-              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 13.5,
+              color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
             }}
           />
         </div>
@@ -3137,12 +3901,12 @@ function ImpostaNuovaPassword({ onImpostata }) {
 /* ---------------------------------------------------------
    SCHERMATE DI ATTESA / STATO ACCOUNT
 --------------------------------------------------------- */
-function SchermataStato({ icona, titolo, testo, onEsci }) {
+function SchermataStato({ icona, titolo, testo, onEsci, onRiprova, labelEsci = "Esci" }) {
   return (
     <div
       style={{
         minHeight: "100%",
-        background: `radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
+        background: `repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 2px, transparent 2px, transparent 7px), radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
         display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px",
         fontFamily: "Inter, sans-serif",
       }}
@@ -3156,6 +3920,18 @@ function SchermataStato({ icona, titolo, testo, onEsci }) {
         <div style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.chalkDim, lineHeight: 1.6, marginBottom: 20 }}>
           {testo}
         </div>
+        <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
+          {onRiprova && (
+            <button
+              onClick={onRiprova}
+              style={{
+                padding: "9px 18px", borderRadius: 9, border: "none", cursor: "pointer",
+                background: COLORS.floodlight, color: COLORS.pitchDark, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12.5,
+              }}
+            >
+              Riprova
+            </button>
+          )}
         <button
           onClick={onEsci}
           style={{
@@ -3163,8 +3939,9 @@ function SchermataStato({ icona, titolo, testo, onEsci }) {
             background: "transparent", color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontWeight: 600, fontSize: 12.5,
           }}
         >
-          Esci
+          {labelEsci}
         </button>
+        </div>
       </div>
     </div>
   );
@@ -3183,7 +3960,10 @@ export default function CalcettoApp() {
   const [players, setPlayers] = useState([]);
   const [matches, setMatches] = useState([]);
   const [voti, setVoti] = useState([]);
+  const [votiMvp, setVotiMvp] = useState([]);
+  const [conferme, setConferme] = useState([]);
   const [messaggi, setMessaggi] = useState([]);
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState("");
   const [ultimoVistoIl, setUltimoVistoIl] = useState(null);
   const [datiCaricati, setDatiCaricati] = useState(false);
   const [modalitaRecuperoPassword, setModalitaRecuperoPassword] = useState(false);
@@ -3203,7 +3983,6 @@ export default function CalcettoApp() {
         consensoDati: myProfile.consenso_dati,
         consensoFoto: myProfile.consenso_foto,
         maggiorenne: myProfile.maggiorenne,
-        metodo: "email",
         timestamp: myProfile.consenso_timestamp
           ? new Date(myProfile.consenso_timestamp).toLocaleDateString("it-IT", { day: "2-digit", month: "long", year: "numeric" })
           : "",
@@ -3286,9 +4065,24 @@ export default function CalcettoApp() {
     setVoti(data || []);
   };
 
+  const caricaVotiMvp = async () => {
+    const { data } = await supabase.from("voti_mvp").select("match_id, votante_id, votato_id");
+    setVotiMvp(data || []);
+  };
+
+  const caricaConferme = async () => {
+    const { data } = await supabase.from("conferme").select("match_id, player_id, conferma");
+    setConferme(data || []);
+  };
+
   const caricaMessaggi = async () => {
     const { data } = await supabase.from("messaggi").select("*").order("creato_il", { ascending: true }).limit(300);
     setMessaggi(data || []);
+  };
+
+  const caricaImpostazioni = async () => {
+    const { data } = await supabase.from("impostazioni").select("slack_webhook_url").eq("id", 1).maybeSingle();
+    setSlackWebhookUrl(data?.slack_webhook_url || "");
   };
 
   // Quando l'accesso è approvato, carica tutti i dati reali
@@ -3296,7 +4090,7 @@ export default function CalcettoApp() {
     if (profileStatus !== "approvato") return;
     let annullato = false;
     (async () => {
-      await Promise.all([caricaGiocatori(), caricaPartite(), caricaRichiesteRegistrazione(), caricaRichiesteCancellazione(), caricaVoti(), caricaMessaggi()]);
+      await Promise.all([caricaGiocatori(), caricaPartite(), caricaRichiesteRegistrazione(), caricaRichiesteCancellazione(), caricaVoti(), caricaVotiMvp(), caricaConferme(), caricaMessaggi(), caricaImpostazioni()]);
       if (!annullato) {
         setDatiCaricati(true);
         setUltimoVistoIl(new Date().toISOString());
@@ -3324,13 +4118,49 @@ export default function CalcettoApp() {
     };
   }, [profileStatus]);
 
+  // Quando l'app torna in primo piano dopo essere stata in pausa (schermo
+  // spento, altra app aperta), il collegamento in tempo reale potrebbe
+  // essersi sospeso: forziamo un riaggiornamento immediato dei dati.
+  useEffect(() => {
+    if (profileStatus !== "approvato") return;
+    const alRitornoVisibile = () => {
+      if (document.visibilityState === "visible") {
+        caricaMessaggi();
+        caricaGiocatori();
+        caricaPartite();
+      }
+    };
+    document.addEventListener("visibilitychange", alRitornoVisibile);
+    window.addEventListener("focus", alRitornoVisibile);
+    return () => {
+      document.removeEventListener("visibilitychange", alRitornoVisibile);
+      window.removeEventListener("focus", alRitornoVisibile);
+    };
+  }, [profileStatus]);
+
   const inviaMessaggio = async (testo) => {
     if (!currentPlayerId) return;
     await supabase.from("messaggi").insert({ autore_id: currentPlayerId, testo });
+
+    // Inoltra anche su Slack, se configurato — non blocca l'invio se fallisce
+    if (slackWebhookUrl) {
+      const nomeAutore = playersConGol.find((p) => p.id === currentPlayerId)?.name || "Qualcuno";
+      fetch(slackWebhookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: `⚽ *${nomeAutore}* (Calcetto Totale): ${testo}` }),
+      }).catch(() => {});
+    }
   };
 
   const eliminaMessaggio = async (id) => {
     await supabase.from("messaggi").delete().eq("id", id);
+  };
+
+  const salvaSlackWebhook = async (url) => {
+    const { error } = await supabase.from("impostazioni").update({ slack_webhook_url: url || null }).eq("id", 1);
+    if (error) throw error;
+    setSlackWebhookUrl(url);
   };
 
   const PALETTE_OSPITI = ["#2D6A4F", "#1B4332", "#16233D", "#E5533C", "#4C7A5C"];
@@ -3352,21 +4182,14 @@ export default function CalcettoApp() {
   };
 
   const collegaOspite = async (ospiteId, richiesta) => {
-    // Il profilo "ospite" eredita l'account appena registrato: diventa lui
-    // l'account definitivo, e la riga di registrazione in attesa viene rimossa.
-    await supabase
-      .from("profiles")
-      .update({
-        auth_user_id: richiesta.auth_user_id,
-        ospite: false,
-        stato_registrazione: "approvato",
-        consenso_dati: richiesta.consenso_dati,
-        consenso_foto: richiesta.consenso_foto,
-        maggiorenne: richiesta.maggiorenne,
-        consenso_timestamp: richiesta.consenso_timestamp,
-      })
-      .eq("id", ospiteId);
-    await supabase.from("profiles").delete().eq("id", richiesta.id);
+    // Il profilo "ospite" eredita l'account appena registrato: l'operazione
+    // avviene in un unico blocco atomico sul database (vedi funzione
+    // collega_ospite), così non si rischia mai di perdere la richiesta a metà.
+    const { error } = await supabase.rpc("collega_ospite", {
+      p_ospite_id: ospiteId,
+      p_richiesta_id: richiesta.id,
+    });
+    if (error) throw error;
   };
 
   const approvaRegistrazione = async (richiestaId, comeOspiteId) => {
@@ -3425,7 +4248,7 @@ export default function CalcettoApp() {
     await Promise.all([caricaGiocatori(), caricaPartite(), caricaVoti()]);
   };
 
-  const salvaProfilo = async ({ nome, soprannome, ruolo, fotoFile }) => {
+  const salvaProfilo = async ({ nome, soprannome, ruolo, fotoFile, statoGiocatore, scadenzaStato }) => {
     if (!myProfile) return;
     let foto_url = myProfile.foto_url;
     if (fotoFile) {
@@ -3439,10 +4262,27 @@ export default function CalcettoApp() {
     const initials = nome.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase();
     const { error } = await supabase
       .from("profiles")
-      .update({ name: nome.trim(), soprannome: soprannome.trim() || null, ruolo_campo: ruolo, initials, foto_url })
+      .update({
+        name: nome.trim(),
+        soprannome: soprannome.trim() || null,
+        ruolo_campo: ruolo,
+        initials,
+        foto_url,
+        stato_giocatore: statoGiocatore,
+        stato_giocatore_scadenza: scadenzaStato || null,
+      })
       .eq("id", myProfile.id);
     if (error) throw error;
     await Promise.all([caricaGiocatori(), ricaricaMioProfilo()]);
+  };
+
+  const aggiornaConsenso = async (chiave) => {
+    if (!myProfile) return;
+    await supabase
+      .from("profiles")
+      .update({ [chiave]: true, consenso_timestamp: new Date().toISOString() })
+      .eq("id", myProfile.id);
+    await ricaricaMioProfilo();
   };
 
   const cambiaEmail = async (nuovaEmail) => {
@@ -3470,7 +4310,7 @@ export default function CalcettoApp() {
     await caricaPartite();
   };
 
-  const salvaRisultato = async (matchId, { bianchi, neri, gol, autogol, mvp, buche }) => {
+  const salvaRisultato = async (matchId, { bianchi, neri, gol, autogol, buche }) => {
     await supabase
       .from("matches")
       .update({
@@ -3478,7 +4318,6 @@ export default function CalcettoApp() {
         risultato_neri: neri,
         gol,
         autogol,
-        mvp: mvp || null,
         buche,
         stato: "storico",
       })
@@ -3498,6 +4337,41 @@ export default function CalcettoApp() {
       .upsert({ match_id: matchId, votante_id: currentPlayerId, votato_id: votatoId, voto }, { onConflict: "match_id,votante_id,votato_id" });
   };
 
+  const inviaVotoMvp = async (matchId, votatoId) => {
+    if (!currentPlayerId) return;
+    // Aggiornamento ottimistico: aggiorna subito lo stato locale senza aspettare il giro di rete
+    setVotiMvp((prev) => {
+      const altri = prev.filter((v) => !(v.match_id === matchId && v.votante_id === currentPlayerId));
+      return [...altri, { match_id: matchId, votante_id: currentPlayerId, votato_id: votatoId }];
+    });
+    const { error } = await supabase
+      .from("voti_mvp")
+      .upsert({ match_id: matchId, votante_id: currentPlayerId, votato_id: votatoId }, { onConflict: "match_id,votante_id" });
+    if (error) {
+      // In caso di errore, riallinea con quanto salvato realmente sul server
+      await caricaVotiMvp();
+    }
+  };
+
+  const rispondiConvocazione = async (matchId, risposta) => {
+    if (!currentPlayerId) return;
+    await supabase
+      .from("conferme")
+      .upsert({ match_id: matchId, player_id: currentPlayerId, conferma: risposta }, { onConflict: "match_id,player_id" });
+
+    if (!risposta) {
+      // Rifiutando, esce automaticamente dalla formazione: l'organizzatore
+      // vede il buco da riempire (e l'avviso esplicito in Crea Partita).
+      const match = matches.find((m) => m.id === matchId);
+      if (match) {
+        const bianchi = match.squadraBianchi.filter((id) => id !== currentPlayerId);
+        const neri = match.squadraNeri.filter((id) => id !== currentPlayerId);
+        await supabase.from("matches").update({ squadra_bianchi: bianchi, squadra_neri: neri }).eq("id", matchId);
+      }
+    }
+    await Promise.all([caricaConferme(), caricaPartite()]);
+  };
+
   const segnaGolPropri = async (matchId, numeroGol) => {
     const { error } = await supabase.rpc("aggiorna_gol_giocatore", { p_match_id: matchId, p_gol: numeroGol });
     if (error) throw error;
@@ -3509,6 +4383,23 @@ export default function CalcettoApp() {
   const bucheTotali = useMemo(() => bucheTotaliPerGiocatore(matches), [matches]);
   const votiRicevuti = useMemo(() => votiRicevutiPerGiocatore(voti), [voti]);
   const presenzeReali = useMemo(() => presenzeAssenzePerGiocatore(matches), [matches]);
+  const mvpTotali = useMemo(() => {
+    const tot = {};
+    matches
+      .filter((m) => m.stato === "storico")
+      .forEach((m) => {
+        const vincitore = calcolaMvp(m.id, votiMvp);
+        if (vincitore?.id) tot[vincitore.id] = (tot[vincitore.id] || 0) + 1;
+      });
+    return tot;
+  }, [matches, votiMvp]);
+
+  // Chi è già assegnato a una squadra nella partita ancora aperta risulta "Convocato"
+  const convocatoIds = useMemo(() => {
+    const aperta = matches.find((m) => m.stato === "aperta");
+    if (!aperta) return new Set();
+    return new Set([...aperta.squadraBianchi, ...aperta.squadraNeri]);
+  }, [matches]);
 
   const playersConGol = useMemo(
     () =>
@@ -3534,9 +4425,11 @@ export default function CalcettoApp() {
           presenze: stat.presenze,
           assenze: stat.assenze,
           affidabilita,
+          mvp: mvpTotali[p.id] || 0,
+          convocato: convocatoIds.has(p.id),
         };
       }),
-    [players, golTotali, autogolTotali, bucheTotali, votiRicevuti, presenzeReali]
+    [players, golTotali, autogolTotali, bucheTotali, votiRicevuti, presenzeReali, mvpTotali, convocatoIds]
   );
 
   const giocatoriRimossi = useMemo(() => players.filter((p) => p.rimosso).map((p) => p.id), [players]);
@@ -3544,41 +4437,72 @@ export default function CalcettoApp() {
   const tabsByRole = {
     player: [
       { id: "dashboard", label: "Dashboard" },
-      { id: "squadra", label: "Squadra" },
-      { id: "storico", label: "Storico" },
+      { id: "squadra", label: "Giocatori" },
       { id: "voti", label: "Vota partita" },
-      { id: "chat", label: "Chat" },
-      { id: "mieidati", label: "I miei dati" },
+      { id: "storico", label: "Partite" },
     ],
     organizer: [
       { id: "dashboard", label: "Dashboard" },
+      { id: "squadra", label: "Giocatori" },
       { id: "formazione", label: "Crea Partita" },
       { id: "risultato", label: "Risultato" },
-      { id: "permessi", label: "Giocatori" },
-      { id: "squadra", label: "Squadra" },
-      { id: "storico", label: "Storico" },
       { id: "voti", label: "Vota partita" },
-      { id: "chat", label: "Chat" },
-      { id: "mieidati", label: "I miei dati" },
+      { id: "storico", label: "Partite" },
+      { id: "permessi", label: "Permessi" },
     ],
     coach: [
       { id: "dashboard", label: "Dashboard" },
+      { id: "squadra", label: "Giocatori" },
       { id: "formazione", label: "Crea Partita" },
-      { id: "squadra", label: "Squadra" },
-      { id: "storico", label: "Storico" },
       { id: "voti", label: "Vota partita" },
-      { id: "chat", label: "Chat" },
-      { id: "mieidati", label: "I miei dati" },
+      { id: "storico", label: "Partite" },
     ],
   };
 
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeTab, setActiveTab] = useState(() => sessionStorage.getItem("calcetto_activeTab") || "dashboard");
+  const [confermaEsci, setConfermaEsci] = useState(false);
+
+  useEffect(() => {
+    sessionStorage.setItem("calcetto_activeTab", activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (!myProfile) return;
+    const tabValide = [...tabsByRole[role].map((t) => t.id), "chat", "mieidati"];
+    if (!tabValide.includes(activeTab)) setActiveTab("dashboard");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myProfile, role]);
+
+  useEffect(() => {
+    if (!confermaEsci) return;
+    const t = setTimeout(() => setConfermaEsci(false), 3000);
+    return () => clearTimeout(t);
+  }, [confermaEsci]);
   const tabs = tabsByRole[role];
 
   const messaggiNonLetti = useMemo(() => {
     if (!ultimoVistoIl) return 0;
     return messaggi.filter((m) => new Date(m.creato_il) > new Date(ultimoVistoIl) && m.autore_id !== currentPlayerId).length;
   }, [messaggi, ultimoVistoIl, currentPlayerId]);
+
+  // Chiede il permesso di mostrare notifiche una sola volta: su iOS serve
+  // per poter mostrare il numero sull'icona dell'app (schermata home).
+  useEffect(() => {
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
+  }, []);
+
+  // Aggiorna il numerino sull'icona dell'app quando ci sono messaggi non letti
+  // (funziona solo per chi ha aggiunto l'app alla schermata home).
+  useEffect(() => {
+    if (!("setAppBadge" in navigator)) return;
+    if (messaggiNonLetti > 0) {
+      navigator.setAppBadge(messaggiNonLetti).catch(() => {});
+    } else {
+      navigator.clearAppBadge().catch(() => {});
+    }
+  }, [messaggiNonLetti]);
 
   useEffect(() => {
     if (activeTab === "chat" && messaggi.length > 0) {
@@ -3594,13 +4518,13 @@ export default function CalcettoApp() {
   if (session === undefined) {
     return (
       <div style={{ minHeight: "100%", background: COLORS.pitchDark, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>Caricamento…</div>
+        <Spinner />
       </div>
     );
   }
 
   if (!session) {
-    return <Onboarding onRegistrationSent={() => {}} />;
+    return <Onboarding onRegistrationSent={ricaricaMioProfilo} />;
   }
 
   if (modalitaRecuperoPassword) {
@@ -3610,22 +4534,30 @@ export default function CalcettoApp() {
   if (profileStatus === null) {
     return (
       <div style={{ minHeight: "100%", background: COLORS.pitchDark, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>Caricamento…</div>
+        <Spinner />
       </div>
     );
   }
 
   if (profileStatus === "nessuno") {
-    return <CompletaProfiloGoogle session={session} onCompletato={ricaricaMioProfilo} />;
+    return (
+      <SchermataStato
+        icona="⏳"
+        titolo="Un momento…"
+        testo="Stiamo completando la tua registrazione. Riprova tra qualche secondo ricaricando la pagina — se il problema persiste, contatta l'organizzatore."
+        onEsci={() => { sessionStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
+      />
+    );
   }
 
   if (profileStatus === "in_attesa") {
     return (
       <SchermataStato
-        icona="⏳"
-        titolo="In attesa di approvazione"
-        testo="La tua registrazione è stata ricevuta. L'organizzatore deve approvarla prima che tu possa accedere all'app."
-        onEsci={() => supabase.auth.signOut()}
+        icona="✅"
+        titolo="Registrazione effettuata correttamente"
+        testo="Attendi che l'organizzatore autorizzi il tuo account. Verrai avvisato appena attivo."
+        labelEsci="Esci e torna al login"
+        onEsci={() => { sessionStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
       />
     );
   }
@@ -3636,7 +4568,7 @@ export default function CalcettoApp() {
         icona="✕"
         titolo="Richiesta non approvata"
         testo="L'organizzatore non ha approvato questa registrazione. Contattalo direttamente se pensi sia un errore."
-        onEsci={() => supabase.auth.signOut()}
+        onEsci={() => { sessionStorage.removeItem("calcetto_activeTab"); supabase.auth.signOut(); }}
       />
     );
   }
@@ -3645,53 +4577,109 @@ export default function CalcettoApp() {
     <div
       style={{
         minHeight: "100%",
-        background: `radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
+        background: `repeating-linear-gradient(135deg, rgba(255,255,255,0.015) 0px, rgba(255,255,255,0.015) 2px, transparent 2px, transparent 7px), radial-gradient(circle at 20% 0%, ${COLORS.pitchMid}, ${COLORS.pitchDark} 60%)`,
         padding: "22px 20px 40px",
         fontFamily: "Inter, sans-serif",
       }}
     >
       <style>{FONT_IMPORT}</style>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 26, flexWrap: "wrap", gap: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 26, flexWrap: "wrap", gap: 14, position: "relative", zIndex: 60 }}>
         <div>
           <div style={{ fontFamily: "Barlow Condensed, sans-serif", fontWeight: 800, fontSize: 26, color: COLORS.chalk, letterSpacing: 0.4 }}>
-            ⚽ CALCETTO MARTEDÌ & GIOVEDÌ
+            ⚽ CALCETTO TOTALE
           </div>
           <div style={{ fontSize: 12, color: COLORS.chalkDim }}>Gestione partite, formazioni, risultati e voti</div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <button
+            onClick={() => setActiveTab("chat")}
+            title="Chat"
+            aria-label="Chat"
+            style={{
+              position: "relative", background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 8,
+              color: activeTab === "chat" ? COLORS.floodlight : COLORS.chalkDim, fontSize: 24, width: 38, height: 38,
+              display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+            }}
+          >
+            💬
+            {messaggiNonLetti > 0 && (
+              <span
+                style={{
+                  position: "absolute", top: -4, right: -4, background: COLORS.red, color: COLORS.chalk,
+                  borderRadius: 999, fontSize: 9.5, fontFamily: "Inter, sans-serif", fontWeight: 700,
+                  minWidth: 15, height: 15, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 3px",
+                }}
+              >
+                {messaggiNonLetti > 9 ? "9+" : messaggiNonLetti}
+              </span>
+            )}
+          </button>
+
+          <div style={{ width: 1, height: 22, background: "rgba(255,255,255,0.12)", margin: "0 4px" }} />
+
+          <button
+            onClick={() => setActiveTab("mieidati")}
+            title="I miei dati"
+            aria-label="I miei dati"
+            style={{
+              background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 8,
+              color: activeTab === "mieidati" ? COLORS.floodlight : COLORS.chalkDim, fontSize: 24, width: 38, height: 38,
+              display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer",
+            }}
+          >
+            🪪
+          </button>
+
+          <div style={{ width: 1, height: 22, background: "rgba(255,255,255,0.12)", margin: "0 4px" }} />
+
           {sonoOrganizzatore || sonoAllenatore ? (
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 9, color: COLORS.chalkDim, marginBottom: 3, textTransform: "uppercase", letterSpacing: 0.4 }}>
-                Demo: vista account
-              </div>
-              <RoleSwitcher
-                role={role}
-                setRole={handleRoleChange}
-                opzioni={
-                  sonoOrganizzatore
-                    ? [{ id: "player", label: "Giocatore" }, { id: "organizer", label: "Organizzatore" }]
-                    : [{ id: "player", label: "Giocatore" }, { id: "coach", label: "Allenatore" }]
-                }
-              />
-            </div>
+            <RoleSwitcher
+              role={role}
+              setRole={handleRoleChange}
+              opzioni={
+                sonoOrganizzatore
+                  ? [{ id: "player", label: "Vista Giocatore (demo)", icon: "👤" }, { id: "organizer", label: "Vista Organizzatore (demo)", icon: "🛠️" }]
+                  : [{ id: "player", label: "Vista Giocatore (demo)", icon: "👤" }, { id: "coach", label: "Vista Allenatore (demo)", icon: "📣" }]
+              }
+            />
           ) : (
             <span style={chip("rgba(76,175,109,0.15)", COLORS.green)}>Giocatore</span>
           )}
+
+          <div style={{ width: 1, height: 22, background: "rgba(255,255,255,0.12)", margin: "0 4px" }} />
+
           <button
-            onClick={() => supabase.auth.signOut()}
+            onClick={() => {
+              if (confermaEsci) {
+                sessionStorage.removeItem("calcetto_activeTab");
+                supabase.auth.signOut();
+              } else {
+                setConfermaEsci(true);
+              }
+            }}
+            title={confermaEsci ? "Tocca di nuovo per confermare" : "Esci"}
+            aria-label="Esci"
             style={{
-              background: "none", border: `1px solid rgba(255,255,255,0.15)`, borderRadius: 8,
-              color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 12, padding: "7px 10px", cursor: "pointer",
+              background: confermaEsci ? COLORS.red : "none",
+              border: `1px solid ${confermaEsci ? COLORS.red : "rgba(255,255,255,0.15)"}`,
+              borderRadius: 8,
+              color: confermaEsci ? COLORS.chalk : COLORS.chalkDim,
+              fontSize: confermaEsci ? 10.5 : 24,
+              fontFamily: "Inter, sans-serif", fontWeight: 700,
+              width: confermaEsci ? 70 : 38, height: 38, display: "flex",
+              alignItems: "center", justifyContent: "center", cursor: "pointer",
+              transition: "width .15s ease",
             }}
           >
-            Esci
+            {confermaEsci ? "Conferma" : "🚪"}
           </button>
         </div>
       </div>
 
       <Tabs tabs={tabs} active={activeTab} setActive={setActiveTab} badges={{ chat: messaggiNonLetti }} />
 
+      <div key={activeTab} className="fade-in">
       {activeTab === "dashboard" && (
         <Dashboard
           players={playersConGol}
@@ -3700,6 +4688,8 @@ export default function CalcettoApp() {
           voti={voti}
           rimossi={giocatoriRimossi}
           sonoOrganizzatore={sonoOrganizzatore || sonoAllenatore}
+          conferme={conferme}
+          onRispondiConvocazione={rispondiConvocazione}
           onVaiACreaPartita={() => {
             setRole(sonoOrganizzatore ? "organizer" : "coach");
             setActiveTab("formazione");
@@ -3707,12 +4697,12 @@ export default function CalcettoApp() {
         />
       )}
       {activeTab === "squadra" && <Squadra players={playersConGol} rimossi={giocatoriRimossi} matches={matches} voti={voti} />}
-      {activeTab === "storico" && <Storico players={playersConGol} matches={matches} rimossi={giocatoriRimossi} voti={voti} />}
+      {activeTab === "storico" && <Storico players={playersConGol} matches={matches} rimossi={giocatoriRimossi} voti={voti} votiMvp={votiMvp} />}
       {activeTab === "voti" && (
-        <Votazione players={playersConGol} matches={matches} currentPlayerId={currentPlayerId} onVota={inviaVoto} onSegnaGolPropri={segnaGolPropri} />
+        <Votazione players={playersConGol} matches={matches} currentPlayerId={currentPlayerId} onVota={inviaVoto} onSegnaGolPropri={segnaGolPropri} votiMvp={votiMvp} onVotaMvp={inviaVotoMvp} />
       )}
       {(role === "organizer" || role === "coach") && activeTab === "formazione" && (
-        <Formazione players={playersConGol} matches={matches} onSalvaFormazione={salvaFormazione} onCreaPartita={creaPartita} onAggiungiGiocatore={aggiungiGiocatore} />
+        <Formazione players={playersConGol} matches={matches} onSalvaFormazione={salvaFormazione} onCreaPartita={creaPartita} onAggiungiGiocatore={aggiungiGiocatore} conferme={conferme} />
       )}
       {role === "organizer" && activeTab === "risultato" && (
         <Risultato players={playersConGol} matches={matches} onSalvaRisultato={salvaRisultato} onEliminaPartita={eliminaPartita} voti={voti} />
@@ -3728,6 +4718,8 @@ export default function CalcettoApp() {
           onModificaGiocatore={modificaGiocatore}
           onEliminaGiocatoreOspite={eliminaGiocatoreOspite}
           onUnisciGiocatori={unisciGiocatori}
+          slackWebhookUrl={slackWebhookUrl}
+          onSalvaSlackWebhook={salvaSlackWebhook}
           richiesteRegistrazione={richiesteRegistrazione}
           onApprovaRegistrazione={approvaRegistrazione}
           onRifiutaRegistrazione={rifiutaRegistrazione}
@@ -3751,8 +4743,10 @@ export default function CalcettoApp() {
           session={session}
           onSalvaProfilo={salvaProfilo}
           onCambiaEmail={cambiaEmail}
+          onAggiornaConsenso={aggiornaConsenso}
         />
       )}
+      </div>
     </div>
   );
 }

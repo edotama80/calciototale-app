@@ -2563,9 +2563,6 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
               ⬇️ Scarica immagine JPG
             </button>
           </div>
-          <div style={{ fontSize: 11.5, color: COLORS.chalkDim, marginTop: 10, lineHeight: 1.6, fontFamily: "Inter, sans-serif" }}>
-            Nessuna conferma richiesta ai giocatori: l'organizzatore compone le squadre e la manda nel gruppo WhatsApp com'è sempre stato fatto.
-          </div>
         </div>
       </div>
     </div>

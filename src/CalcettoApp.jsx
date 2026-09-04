@@ -288,7 +288,7 @@ function mediaTroncata(voti) {
 }
 
 // Calcola l'MVP di una partita dai voti dei giocatori: chi ha più voti vince.
-// In caso di parità in cima, non assegna nessuno (evita scelte arbitrarie).
+// In caso di parità in cima, il titolo va a tutti i giocatori in parità.
 function calcolaMvp(matchId, votiMvp) {
   const conteggio = {};
   votiMvp
@@ -298,8 +298,9 @@ function calcolaMvp(matchId, votiMvp) {
     });
   const voci = Object.entries(conteggio).sort((a, b) => b[1] - a[1]);
   if (voci.length === 0) return null;
-  if (voci.length > 1 && voci[0][1] === voci[1][1]) return { id: null, pari: true, voti: voci[0][1] };
-  return { id: voci[0][0], voti: voci[0][1] };
+  const votiTop = voci[0][1];
+  const vincitori = voci.filter(([, n]) => n === votiTop).map(([id]) => id);
+  return { ids: vincitori, pari: vincitori.length > 1, voti: votiTop };
 }
 
 function votiRicevutiPerGiocatore(voti) {
@@ -308,6 +309,28 @@ function votiRicevutiPerGiocatore(voti) {
     (map[v.votato_id] ||= []).push(Number(v.voto));
   });
   return map;
+}
+
+// Media di carriera per la figurina: fa la media delle pagelle già calcolate
+// a partita (stessa logica dello Storico), non un mazzo unico di voti.
+// Così ogni partita pesa allo stesso modo, indipendentemente da quanti
+// compagni hanno votato quella volta.
+function mediaCarrieraPerGiocatore(voti) {
+  const perPartita = {};
+  voti.forEach((v) => {
+    perPartita[v.votato_id] ||= {};
+    (perPartita[v.votato_id][v.match_id] ||= []).push(Number(v.voto));
+  });
+  const media = {};
+  Object.entries(perPartita).forEach(([playerId, partite]) => {
+    const pagelle = Object.values(partite)
+      .map((votiPartita) => mediaTroncata(votiPartita))
+      .filter((m) => m != null);
+    if (pagelle.length > 0) {
+      media[playerId] = pagelle.reduce((a, b) => a + b, 0) / pagelle.length;
+    }
+  });
+  return media;
 }
 
 // Presenze/assenze reali: per ogni partita storico a cui il giocatore era
@@ -322,6 +345,37 @@ function presenzeAssenzePerGiocatore(matches) {
         if ((m.buche || []).includes(id)) stat[id].assenze += 1;
         else stat[id].presenze += 1;
       });
+    });
+  return stat;
+}
+
+// Vittorie: per ogni partita storico con un risultato registrato, chi era
+// nella squadra vincente (ed ha effettivamente giocato, quindi non "buca")
+// riceve una vittoria. Pareggio: nessuna vittoria assegnata a nessuno.
+function vittoriePerGiocatore(matches) {
+  const stat = {};
+  matches
+    .filter((m) => m.stato === "storico" && m.risultato)
+    .forEach((m) => {
+      const { bianchi, neri } = m.risultato;
+      if (bianchi === neri) return;
+      const squadraVincente = bianchi > neri ? m.squadraBianchi : m.squadraNeri;
+      squadraVincente.forEach((id) => {
+        if ((m.buche || []).includes(id)) return;
+        stat[id] = (stat[id] || 0) + 1;
+      });
+    });
+  return stat;
+}
+
+// Rifiuti: quante volte un giocatore, dopo essere stato convocato, ha
+// risposto "non posso venire" alla richiesta di conferma.
+function rifiutiPerGiocatore(conferme) {
+  const stat = {};
+  conferme
+    .filter((c) => c.conferma === false)
+    .forEach((c) => {
+      stat[c.player_id] = (stat[c.player_id] || 0) + 1;
     });
   return stat;
 }
@@ -588,6 +642,9 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true, squadra = nul
           <div style={{ height: dim.affBarH, background: trackBg, borderRadius: 3, overflow: "hidden", border: `1px solid ${trackBorder}` }}>
             <div style={{ height: "100%", width: `${p.affidabilita}%`, background: affidabilitaColor(p.affidabilita) }} />
           </div>
+          <div style={{ textAlign: "center", fontSize: dim.affLabelFont, color: COLORS.red, fontWeight: 700, letterSpacing: 0.3, marginTop: 2, visibility: p.affidabilita < 80 ? "visible" : "hidden" }}>
+            ⚠️ NON AFFIDABILE
+          </div>
         </div>
 
         <div
@@ -602,7 +659,7 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true, squadra = nul
         >
           {[
             { icona: "👕", val: p.presenze, etichetta: "PRES" },
-            { icona: "🚫", val: p.assenze, etichetta: "ASS" },
+            { icona: "🥇", val: p.vittorie ?? 0, etichetta: "VIT" },
             { icona: "⚽", val: p.gol ?? 0, etichetta: "GOL" },
             { icona: "🏆", val: p.mvp, etichetta: "MVP" },
           ].map((s) => (
@@ -811,7 +868,7 @@ function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore,
       })()}
 
       {dettaglioFormazioneAperto && match && (
-        <AnteprimaFormazioneModal match={match} players={players} onChiudi={() => setDettaglioFormazioneAperto(false)} />
+        <AnteprimaFormazioneModal match={match} players={players} onChiudi={() => setDettaglioFormazioneAperto(false)} conferme={conferme} />
       )}
 
       {me && (
@@ -1030,11 +1087,10 @@ function Storico({ players, matches, rimossi = [], voti = [], votiMvp = [] }) {
                 <div>
                   <div style={chip("rgba(255,255,255,0.08)", COLORS.chalkDim)}>{m.giorno.toUpperCase()} · {formattaDataIT(m.data)}</div>
                 </div>
-                {mvpPartita?.id && (
-                  <span style={chip("rgba(255,200,87,0.15)", COLORS.floodlight)}>🏅 MVP: {nomeById(players, mvpPartita.id, rimossi)} ({mvpPartita.voti} voti)</span>
-                )}
-                {mvpPartita?.pari && (
-                  <span style={chip("rgba(255,255,255,0.08)", COLORS.chalkDim)}>🏅 MVP in parità</span>
+                {mvpPartita?.ids?.length > 0 && (
+                  <span style={chip("rgba(255,200,87,0.15)", COLORS.floodlight)}>
+                    🏅 MVP: {mvpPartita.ids.map((id) => nomeById(players, id, rimossi)).join(" e ")} ({mvpPartita.voti} voti{mvpPartita.pari ? ", pari merito" : ""})
+                  </span>
                 )}
               </div>
 
@@ -1371,11 +1427,12 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
         </div>
       )}
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        {compagni.length === 0 && (
-          <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>Nessun compagno da votare per questa partita.</div>
-        )}
-        {compagni.map((p) => {
+      {sonoPartecipante ? (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {compagni.length === 0 && (
+            <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13 }}>Nessun compagno da votare per questa partita.</div>
+          )}
+          {compagni.map((p) => {
           const val = voti[p.id] ?? 6;
           const anomalia = scartoAnomalo(p.id, val);
           const done = inviati[p.id];
@@ -1493,7 +1550,12 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
             </div>
           );
         })}
-      </div>
+        </div>
+      ) : (
+        <div style={{ color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontSize: 13, background: COLORS.navy, borderRadius: 12, padding: "14px 16px" }}>
+          Non hai giocato in questa partita, quindi non puoi votare i compagni.
+        </div>
+      )}
     </div>
   );
 }
@@ -1854,7 +1916,7 @@ function calcolaSlotMezzalunaImg(numeroMovimento) {
   return [{ fx: gkFx, fy: gkFy }, ...arco];
 }
 
-function disegnaPannelloSquadraImg(ctx, x, y, w, h, titolo, lista, immagini, chiaro) {
+function disegnaPannelloSquadraImg(ctx, x, y, w, h, titolo, lista, immagini, chiaro, confermatiIds) {
   const sfondoPannello = ctx.createLinearGradient(x, y, x, y + h);
   sfondoPannello.addColorStop(0, "#1B4332");
   sfondoPannello.addColorStop(1, "#050c07");
@@ -1935,12 +1997,13 @@ function disegnaPannelloSquadraImg(ctx, x, y, w, h, titolo, lista, immagini, chi
     const cx = x + w * slot.fx;
     const cy = areaY + areaH * slot.fy;
     const img = immaginePerId[p.id];
+    const confermato = !confermatiIds || confermatiIds.has(p.id);
 
     ctx.beginPath();
     ctx.arc(cx, cy, raggio + 4, 0, Math.PI * 2);
     const grad = ctx.createLinearGradient(cx - raggio, cy - raggio, cx + raggio, cy + raggio);
-    grad.addColorStop(0, "#FFC857");
-    grad.addColorStop(1, "#8a6a1a");
+    grad.addColorStop(0, confermato ? "#FFC857" : "#5a5f5b");
+    grad.addColorStop(1, confermato ? "#8a6a1a" : "#33362f");
     ctx.fillStyle = grad;
     ctx.fill();
 
@@ -1949,7 +2012,16 @@ function disegnaPannelloSquadraImg(ctx, x, y, w, h, titolo, lista, immagini, chi
     ctx.arc(cx, cy, raggio, 0, Math.PI * 2);
     ctx.closePath();
     ctx.clip();
-    if (img) {
+    if (!confermato) {
+      ctx.fillStyle = "#2a2f2a";
+      ctx.fillRect(cx - raggio, cy - raggio, raggio * 2, raggio * 2);
+      ctx.fillStyle = "rgba(242,240,233,0.55)";
+      ctx.font = "bold 26px sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText("?", cx, cy + 2);
+      ctx.textBaseline = "alphabetic";
+    } else if (img) {
       ctx.drawImage(img, cx - raggio, cy - raggio, raggio * 2, raggio * 2);
     } else {
       ctx.fillStyle = p.colore || "#2D6A4F";
@@ -1991,7 +2063,7 @@ function disegnaPannelloSquadraImg(ctx, x, y, w, h, titolo, lista, immagini, chi
   });
 }
 
-async function disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri) {
+async function disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri, confermatiIds) {
   const [immaginiBianchi, immaginiNeri] = await Promise.all([
     Promise.all(listaBianchi.map((p) => caricaImmagineFormazione(p.foto_url))),
     Promise.all(listaNeri.map((p) => caricaImmagineFormazione(p.foto_url))),
@@ -2055,8 +2127,8 @@ async function disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri)
   const xBianchi = 60;
   const xNeri = 60 + panelW + 60;
 
-  disegnaPannelloSquadraImg(ctx, xBianchi, panelY, panelW, panelH, "⚪ BIANCHI", listaBianchi, immaginiBianchi, true);
-  disegnaPannelloSquadraImg(ctx, xNeri, panelY, panelW, panelH, "⚫ NERI", listaNeri, immaginiNeri, false);
+  disegnaPannelloSquadraImg(ctx, xBianchi, panelY, panelW, panelH, "⚪ BIANCHI", listaBianchi, immaginiBianchi, true, confermatiIds);
+  disegnaPannelloSquadraImg(ctx, xNeri, panelY, panelW, panelH, "⚫ NERI", listaNeri, immaginiNeri, false, confermatiIds);
 
   const cxVs = W / 2;
   const cyVs = panelY + panelH / 2;
@@ -2085,17 +2157,20 @@ async function disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri)
 /* ---------------------------------------------------------
    ANTEPRIMA FORMAZIONE (sola lettura, apribile dalla Dashboard)
 --------------------------------------------------------- */
-function AnteprimaFormazioneModal({ match, players, onChiudi }) {
+function AnteprimaFormazioneModal({ match, players, onChiudi, conferme = [] }) {
   const canvasRef = useRef(null);
 
   const listaBianchi = players.filter((p) => match.squadraBianchi.includes(p.id));
   const listaNeri = players.filter((p) => match.squadraNeri.includes(p.id));
+  const confermatiIds = new Set(
+    conferme.filter((c) => c.match_id === match.id && c.conferma === true).map((c) => c.player_id)
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     let annullato = false;
-    disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri).then(() => {
+    disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri, confermatiIds).then(() => {
       if (annullato) return;
     });
     return () => {
@@ -2130,6 +2205,11 @@ function AnteprimaFormazioneModal({ match, players, onChiudi }) {
         onClick={(e) => e.stopPropagation()}
       >
         <canvas ref={canvasRef} style={{ width: "100%", display: "block", borderRadius: 16, boxShadow: "0 12px 32px rgba(0,0,0,0.5)" }} />
+        {confermatiIds.size < listaBianchi.length + listaNeri.length && (
+          <div style={{ fontFamily: "Inter, sans-serif", fontSize: 11.5, color: COLORS.chalkDim, marginTop: 10, textAlign: "center" }}>
+            ❔ I giocatori con il punto interrogativo non hanno ancora confermato la presenza.
+          </div>
+        )}
         <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
           <button
             onClick={scarica}
@@ -2233,13 +2313,16 @@ function Formazione({ players, matches, onSalvaFormazione, onCreaPartita, onAggi
     const canvas = canvasRef.current;
     if (!canvas || !match) return;
     let annullato = false;
-    disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri).then(() => {
+    const confermatiIds = new Set(
+      conferme.filter((c) => c.match_id === match.id && c.conferma === true).map((c) => c.player_id)
+    );
+    disegnaImmagineFormazione(canvas, match, listaBianchi, listaNeri, confermatiIds).then(() => {
       if (annullato) return;
     });
     return () => {
       annullato = true;
     };
-  }, [squadre, match, listaBianchi.length, listaNeri.length]);
+  }, [squadre, match, listaBianchi.length, listaNeri.length, conferme]);
 
 
   const scarica = () => {
@@ -4382,14 +4465,19 @@ export default function CalcettoApp() {
   const autogolTotali = useMemo(() => autogolTotaliPerGiocatore(matches), [matches]);
   const bucheTotali = useMemo(() => bucheTotaliPerGiocatore(matches), [matches]);
   const votiRicevuti = useMemo(() => votiRicevutiPerGiocatore(voti), [voti]);
+  const mediaCarriera = useMemo(() => mediaCarrieraPerGiocatore(voti), [voti]);
   const presenzeReali = useMemo(() => presenzeAssenzePerGiocatore(matches), [matches]);
+  const vittorieTotali = useMemo(() => vittoriePerGiocatore(matches), [matches]);
+  const rifiutiTotali = useMemo(() => rifiutiPerGiocatore(conferme), [conferme]);
   const mvpTotali = useMemo(() => {
     const tot = {};
     matches
       .filter((m) => m.stato === "storico")
       .forEach((m) => {
         const vincitore = calcolaMvp(m.id, votiMvp);
-        if (vincitore?.id) tot[vincitore.id] = (tot[vincitore.id] || 0) + 1;
+        (vincitore?.ids || []).forEach((id) => {
+          tot[id] = (tot[id] || 0) + 1;
+        });
       });
     return tot;
   }, [matches, votiMvp]);
@@ -4408,13 +4496,21 @@ export default function CalcettoApp() {
         const gol = golTotali[p.id] || 0;
         const autogol = autogolTotali[p.id] || 0;
         const votiP = votiRicevuti[p.id] || [];
-        const media = mediaTroncata(votiP);
+        const media = mediaCarriera[p.id] ?? null;
         const baseOverall = media != null ? media * 10 : p.overall;
         // Bonus/malus separato dal voto: +0.5 per gol segnato, -1 per autogol.
         const overall = Math.max(30, Math.min(99, Math.round(baseOverall + gol * 0.5 - autogol * 1)));
         const stat = presenzeReali[p.id] || { presenze: 0, assenze: 0 };
-        const totalePartite = stat.presenze + stat.assenze;
-        const affidabilita = totalePartite > 0 ? Math.round((stat.presenze / totalePartite) * 100) : p.affidabilita ?? 100;
+        const rifiuti = rifiutiTotali[p.id] || 0;
+        // Un rifiuto (convocato disponibile che dà forfait prima) pesa molto meno
+        // di una buca vera e propria (convocato che non si presenta senza avvisare):
+        // conta come l'80% di una presenza invece che 0.
+        const PESO_RIFIUTO = 0.8;
+        const totalePeriodi = stat.presenze + stat.assenze + rifiuti;
+        const affidabilita =
+          totalePeriodi > 0
+            ? Math.round(((stat.presenze + rifiuti * PESO_RIFIUTO) / totalePeriodi) * 100)
+            : p.affidabilita ?? 100;
         return {
           ...p,
           gol,
@@ -4424,12 +4520,14 @@ export default function CalcettoApp() {
           numeroVoti: votiP.length,
           presenze: stat.presenze,
           assenze: stat.assenze,
+          rifiuti,
+          vittorie: vittorieTotali[p.id] || 0,
           affidabilita,
           mvp: mvpTotali[p.id] || 0,
           convocato: convocatoIds.has(p.id),
         };
       }),
-    [players, golTotali, autogolTotali, bucheTotali, votiRicevuti, presenzeReali, mvpTotali, convocatoIds]
+    [players, golTotali, autogolTotali, bucheTotali, votiRicevuti, mediaCarriera, presenzeReali, vittorieTotali, rifiutiTotali, mvpTotali, convocatoIds]
   );
 
   const giocatoriRimossi = useMemo(() => players.filter((p) => p.rimosso).map((p) => p.id), [players]);

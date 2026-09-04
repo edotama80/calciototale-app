@@ -454,6 +454,7 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true, squadra = nul
         nomeFont: 11, sopraFont: 8.5, sopraMb: 2, spacerMb: 4,
         affLabelFont: 6.5, affBarH: 4,
         statGap: 3, statMt: 5, statPt: 5, statIconFont: 9, statValFont: 8, statLabelFont: 5,
+        cakeSize: 18, cakeFont: 11,
       }
     : {
         padOuter: 3, radiusOuter: 16, radiusInner: 13, padInner: "10px 11px 11px",
@@ -464,6 +465,7 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true, squadra = nul
         nomeFont: 15, sopraFont: 11, sopraMb: 4, spacerMb: 6,
         affLabelFont: 8.5, affBarH: 5,
         statGap: 4, statMt: 8, statPt: 8, statIconFont: 12, statValFont: 11, statLabelFont: 6.5,
+        cakeSize: 26, cakeFont: 15,
       };
 
   const timbro = p.convocato
@@ -582,6 +584,22 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true, squadra = nul
               )}
             </div>
           </div>
+          {p.festeggiaCompleanno && (
+            <div
+              title="Buon compleanno! 🎉"
+              style={{
+                position: "absolute", top: -4, left: -4,
+                width: dim.cakeSize, height: dim.cakeSize, borderRadius: "50%",
+                background: "radial-gradient(circle at 32% 32%, #fff4d6, #FFC857)",
+                border: `2px solid ${COLORS.pitchDark}`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: dim.cakeFont, boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
+                lineHeight: 1,
+              }}
+            >
+              🎂
+            </div>
+          )}
           {timbro && (
             <div
               style={{
@@ -3225,12 +3243,13 @@ function ChatInterna({ messaggi, players, currentPlayerId, onInvia, onElimina })
   );
 }
 
-function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) {
+function ModificaProfilo({ myProfile, mioCompleanno, session, onSalvaProfilo, onCambiaEmail }) {
   const [nome, setNome] = useState(myProfile?.name || "");
   const [soprannome, setSoprannome] = useState(myProfile?.soprannome || "");
   const [ruolo, setRuolo] = useState(myProfile?.ruolo_campo || "Centrocampo");
   const [statoGiocatore, setStatoGiocatore] = useState(myProfile?.stato_giocatore || "disponibile");
   const [scadenzaStato, setScadenzaStato] = useState(myProfile?.stato_giocatore_scadenza || "");
+  const [dataNascita, setDataNascita] = useState(mioCompleanno || "");
   const [email, setEmail] = useState(session?.user?.email || "");
   const [fotoFile, setFotoFile] = useState(null);
   const [anteprimaFoto, setAnteprimaFoto] = useState(myProfile?.foto_url || null);
@@ -3240,6 +3259,12 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
   const [emailInCorso, setEmailInCorso] = useState(false);
   const [emailInviata, setEmailInviata] = useState(false);
   const [errore, setErrore] = useState("");
+
+  // mioCompleanno arriva da un caricamento separato (asincrono, per motivi
+  // di privacy) e può non essere ancora pronto al primo render.
+  useEffect(() => {
+    setDataNascita(mioCompleanno || "");
+  }, [mioCompleanno]);
 
   const ruoliCampo = ["Portiere", "Difensore", "Esterno Destro", "Esterno Sinistro", "Centrocampo", "Attaccante"];
   const statiGiocatore = [
@@ -3259,7 +3284,7 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
     setErrore("");
     setSalvataggioInCorso(true);
     try {
-      await onSalvaProfilo({ nome, soprannome, ruolo, fotoFile, statoGiocatore, scadenzaStato: statoGiocatore === "disponibile" ? null : scadenzaStato || null });
+      await onSalvaProfilo({ nome, soprannome, ruolo, fotoFile, statoGiocatore, scadenzaStato: statoGiocatore === "disponibile" ? null : scadenzaStato || null, dataNascita: dataNascita || null });
       setSalvato(true);
       setFotoFile(null);
     } catch (e) {
@@ -3344,6 +3369,21 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
                 color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
               }}
             />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: COLORS.chalkDim, marginBottom: 4 }}>Data di nascita (facoltativa)</div>
+            <input
+              type="date"
+              value={dataNascita} onChange={(e) => setDataNascita(e.target.value)}
+              style={{
+                width: "100%", boxSizing: "border-box", padding: "8px 10px", borderRadius: 7,
+                border: `1px solid rgba(255,255,255,0.15)`, background: "rgba(255,255,255,0.05)",
+                color: COLORS.chalk, fontFamily: "Inter, sans-serif", fontSize: 16,
+              }}
+            />
+            <div style={{ fontSize: 10.5, color: COLORS.chalkDim, marginTop: 4 }}>
+              Resta privata: gli altri non la vedono, ma nella settimana del tuo compleanno spunterà una 🎂 sulla tua figurina.
+            </div>
           </div>
           <div>
             <div style={{ fontSize: 11, color: COLORS.chalkDim, marginBottom: 4 }}>Ruolo in campo</div>
@@ -3450,7 +3490,7 @@ function ModificaProfilo({ myProfile, session, onSalvaProfilo, onCambiaEmail }) 
   );
 }
 
-function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfile, session, onSalvaProfilo, onCambiaEmail, onAggiornaConsenso }) {
+function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfile, mioCompleanno, session, onSalvaProfilo, onCambiaEmail, onAggiornaConsenso }) {
   const righe = [
     { chiave: "consenso_dati", label: "Trattamento dati (presenze, voti, statistiche)", val: consensi?.consensoDati },
     { chiave: "consenso_foto", label: "Utilizzo foto per la figurina", val: consensi?.consensoFoto },
@@ -3473,7 +3513,7 @@ function MieiDati({ consensi, richiestaInviata, onRichiediCancellazione, myProfi
         Consensi forniti in fase di registrazione{consensi?.timestamp ? ` · ${consensi.timestamp}` : ""}
       </div>
 
-      <ModificaProfilo myProfile={myProfile} session={session} onSalvaProfilo={onSalvaProfilo} onCambiaEmail={onCambiaEmail} />
+      <ModificaProfilo myProfile={myProfile} mioCompleanno={mioCompleanno} session={session} onSalvaProfilo={onSalvaProfilo} onCambiaEmail={onCambiaEmail} />
       <div style={{ background: COLORS.navy, borderRadius: 12, padding: 6, marginBottom: 22 }}>
         {righe.map((r, i) => (
           <div
@@ -4037,6 +4077,8 @@ export default function CalcettoApp() {
   const [session, setSession] = useState(undefined); // undefined = ancora da controllare, null = nessuna sessione
   const [profileStatus, setProfileStatus] = useState(null);
   const [myProfile, setMyProfile] = useState(null);
+  const [mioCompleanno, setMioCompleanno] = useState(null);
+  const [compleanniInCorso, setCompleanniInCorso] = useState(new Set());
   const [richiesteCancellazione, setRichiesteCancellazione] = useState([]);
   const [richiesteRegistrazione, setRichiesteRegistrazione] = useState([]);
   const [role, setRole] = useState("player");
@@ -4158,6 +4200,26 @@ export default function CalcettoApp() {
     setConferme(data || []);
   };
 
+  // Solo il proprio compleanno: la tabella "compleanni" ha RLS che permette
+  // di leggere/scrivere solo la propria riga, quindi le date degli altri
+  // non arrivano mai al client.
+  const caricaMioCompleanno = async () => {
+    if (!myProfile) {
+      setMioCompleanno(null);
+      return;
+    }
+    const { data } = await supabase.from("compleanni").select("data_nascita").eq("player_id", myProfile.id).maybeSingle();
+    setMioCompleanno(data?.data_nascita || null);
+  };
+
+  // Chi festeggia in questa settimana: usa una funzione RPC che restituisce
+  // solo gli id dei giocatori in festa, mai le date di nascita vere e proprie.
+  const caricaCompleanniInCorso = async () => {
+    const { data, error } = await supabase.rpc("compleanni_in_corso");
+    if (error) return;
+    setCompleanniInCorso(new Set((data || []).map((r) => r.player_id)));
+  };
+
   const caricaMessaggi = async () => {
     const { data } = await supabase.from("messaggi").select("*").order("creato_il", { ascending: true }).limit(300);
     setMessaggi(data || []);
@@ -4173,7 +4235,7 @@ export default function CalcettoApp() {
     if (profileStatus !== "approvato") return;
     let annullato = false;
     (async () => {
-      await Promise.all([caricaGiocatori(), caricaPartite(), caricaRichiesteRegistrazione(), caricaRichiesteCancellazione(), caricaVoti(), caricaVotiMvp(), caricaConferme(), caricaMessaggi(), caricaImpostazioni()]);
+      await Promise.all([caricaGiocatori(), caricaPartite(), caricaRichiesteRegistrazione(), caricaRichiesteCancellazione(), caricaVoti(), caricaVotiMvp(), caricaConferme(), caricaMessaggi(), caricaImpostazioni(), caricaMioCompleanno(), caricaCompleanniInCorso()]);
       if (!annullato) {
         setDatiCaricati(true);
         setUltimoVistoIl(new Date().toISOString());
@@ -4331,7 +4393,7 @@ export default function CalcettoApp() {
     await Promise.all([caricaGiocatori(), caricaPartite(), caricaVoti()]);
   };
 
-  const salvaProfilo = async ({ nome, soprannome, ruolo, fotoFile, statoGiocatore, scadenzaStato }) => {
+  const salvaProfilo = async ({ nome, soprannome, ruolo, fotoFile, statoGiocatore, scadenzaStato, dataNascita }) => {
     if (!myProfile) return;
     let foto_url = myProfile.foto_url;
     if (fotoFile) {
@@ -4356,7 +4418,19 @@ export default function CalcettoApp() {
       })
       .eq("id", myProfile.id);
     if (error) throw error;
-    await Promise.all([caricaGiocatori(), ricaricaMioProfilo()]);
+
+    // Data di nascita: tabella separata, con RLS che protegge la privacy —
+    // solo l'interessato può leggerla/scriverla; gli altri vedono solo la torta.
+    if (dataNascita) {
+      const { error: erroreCompleanno } = await supabase
+        .from("compleanni")
+        .upsert({ player_id: myProfile.id, data_nascita: dataNascita }, { onConflict: "player_id" });
+      if (erroreCompleanno) throw erroreCompleanno;
+    } else {
+      await supabase.from("compleanni").delete().eq("player_id", myProfile.id);
+    }
+
+    await Promise.all([caricaGiocatori(), ricaricaMioProfilo(), caricaMioCompleanno(), caricaCompleanniInCorso()]);
   };
 
   const aggiornaConsenso = async (chiave) => {
@@ -4525,9 +4599,10 @@ export default function CalcettoApp() {
           affidabilita,
           mvp: mvpTotali[p.id] || 0,
           convocato: convocatoIds.has(p.id),
+          festeggiaCompleanno: compleanniInCorso.has(p.id),
         };
       }),
-    [players, golTotali, autogolTotali, bucheTotali, votiRicevuti, mediaCarriera, presenzeReali, vittorieTotali, rifiutiTotali, mvpTotali, convocatoIds]
+    [players, golTotali, autogolTotali, bucheTotali, votiRicevuti, mediaCarriera, presenzeReali, vittorieTotali, rifiutiTotali, mvpTotali, convocatoIds, compleanniInCorso]
   );
 
   const giocatoriRimossi = useMemo(() => players.filter((p) => p.rimosso).map((p) => p.id), [players]);
@@ -4838,6 +4913,7 @@ export default function CalcettoApp() {
           richiestaInviata={richiesteCancellazione.some((r) => r.playerId === currentPlayerId)}
           onRichiediCancellazione={richiediCancellazioneMiaAccount}
           myProfile={myProfile}
+          mioCompleanno={mioCompleanno}
           session={session}
           onSalvaProfilo={salvaProfilo}
           onCambiaEmail={cambiaEmail}

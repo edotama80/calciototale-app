@@ -564,12 +564,20 @@ function PlayerCard({ p, onClick, selected, larghezzaFissa = true, squadra = nul
         >
           {p.name}
         </div>
-        {p.soprannome && (
-          <div style={{ fontFamily: "Georgia, serif", fontStyle: "italic", fontSize: dim.sopraFont, color: soprannomeColore, textAlign: "center", marginBottom: dim.sopraMb }}>
-            "{p.soprannome}"
-          </div>
-        )}
-        <div style={{ marginBottom: p.soprannome ? dim.spacerMb : dim.spacerMb + 4 }} />
+        <div
+          style={{
+            fontFamily: "Georgia, serif",
+            fontStyle: "italic",
+            fontSize: dim.sopraFont,
+            color: soprannomeColore,
+            textAlign: "center",
+            marginBottom: dim.sopraMb,
+            visibility: p.soprannome ? "visible" : "hidden",
+          }}
+        >
+          "{p.soprannome || "\u00A0"}"
+        </div>
+        <div style={{ marginBottom: dim.spacerMb }} />
 
         {/* Affidabilita gauge */}
         <div style={{ marginBottom: compatta ? 5 : 8 }}>
@@ -710,17 +718,19 @@ function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore,
       : null
     : null;
 
+  const formazioneEsistente = !!(match && (match.squadraBianchi.length > 0 || match.squadraNeri.length > 0));
+
   return (
     <div>
       <div
-        onClick={sonoOrganizzatore && match ? onVaiACreaPartita : undefined}
+        onClick={formazioneEsistente ? () => setDettaglioFormazioneAperto(true) : undefined}
         style={{
           background: `linear-gradient(120deg, ${COLORS.pitchMid}, ${COLORS.pitchDark})`,
           borderRadius: 16,
           padding: 22,
           border: `1px solid ${COLORS.pitchLine}`,
           marginBottom: 24,
-          cursor: sonoOrganizzatore && match ? "pointer" : "default",
+          cursor: formazioneEsistente ? "pointer" : "default",
         }}
       >
         {match ? (
@@ -736,50 +746,28 @@ function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore,
               📍 {match.campo}
             </div>
             <div style={{ fontSize: 11.5, color: COLORS.chalkDim, marginTop: 14, fontFamily: "Inter, sans-serif" }}>
-              {sonoOrganizzatore
-                ? "Tocca qui per modificare la formazione in Crea Partita."
-                : miaSquadra
-                ? "Le formazioni verranno inoltrate nel gruppo WhatsApp dall'organizzatore."
+              {formazioneEsistente
+                ? "📷 Tocca qui per vedere la formazione."
+                : sonoOrganizzatore
+                ? "Vai su \"Crea Partita\" per comporre le squadre."
                 : "L'organizzatore non ha ancora composto le squadre per questa partita."}
             </div>
           </>
         ) : (
           <div style={{ fontFamily: "Inter, sans-serif", color: COLORS.chalkDim, fontSize: 13.5 }}>
-            Nessuna partita in programma al momento. {sonoOrganizzatore ? "Tocca qui per crearne una." : "L'organizzatore ne creerà una a breve."}
+            Nessuna partita in programma al momento. {sonoOrganizzatore ? "Vai su \"Crea Partita\" per crearne una." : "L'organizzatore ne creerà una a breve."}
           </div>
         )}
       </div>
 
-      {sonoOrganizzatore && match && (match.squadraBianchi.length > 0 || match.squadraNeri.length > 0) && (
-        <button
-          onClick={() => setDettaglioFormazioneAperto(true)}
-          style={{
-            display: "flex", alignItems: "center", gap: 6, marginBottom: 24,
-            padding: "8px 14px", borderRadius: 8, border: `1px solid rgba(255,255,255,0.15)`, cursor: "pointer",
-            background: "transparent", color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12.5,
-          }}
-        >
-          📷 Vedi formazione
-        </button>
-      )}
-
-      {match && miaSquadra && !sonoOrganizzatore && (() => {
+      {match && miaSquadra && (() => {
         const miaRisposta = conferme.find((c) => c.match_id === match.id && c.player_id === currentPlayerId);
         if (miaRisposta?.conferma === true) {
           return (
-            <div style={{ background: "rgba(76,175,109,0.1)", border: `1px solid ${COLORS.green}`, borderRadius: 12, padding: "12px 16px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+            <div style={{ background: "rgba(76,175,109,0.1)", border: `1px solid ${COLORS.green}`, borderRadius: 12, padding: "12px 16px", marginBottom: 24 }}>
               <span style={{ fontFamily: "Inter, sans-serif", fontSize: 13, color: COLORS.green }}>
                 ✅ Hai confermato la tua presenza per questa partita.
               </span>
-              <button
-                onClick={() => setDettaglioFormazioneAperto(true)}
-                style={{
-                  padding: "6px 12px", borderRadius: 7, border: `1px solid ${COLORS.green}`, cursor: "pointer",
-                  background: "transparent", color: COLORS.green, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12,
-                }}
-              >
-                📷 Vedi formazione
-              </button>
             </div>
           );
         }
@@ -816,15 +804,6 @@ function Dashboard({ players, matches, currentPlayerId, voti, sonoOrganizzatore,
                 }}
               >
                 ❌ Non posso venire
-              </button>
-              <button
-                onClick={() => setDettaglioFormazioneAperto(true)}
-                style={{
-                  padding: "8px 16px", borderRadius: 8, border: `1px solid rgba(255,255,255,0.2)`, cursor: "pointer",
-                  background: "transparent", color: COLORS.chalkDim, fontFamily: "Inter, sans-serif", fontWeight: 700, fontSize: 12.5,
-                }}
-              >
-                📷 Vedi formazione
               </button>
             </div>
           </div>
@@ -1274,11 +1253,17 @@ function Votazione({ players, matches, currentPlayerId, onVota, onSegnaGolPropri
 
   const invia = async (playerId, val) => {
     setInvioInCorso((s) => ({ ...s, [playerId]: true }));
-    await onVota(match.id, playerId, val);
-    await caricaVotiEsistenti();
-    setInvioInCorso((s) => ({ ...s, [playerId]: false }));
+    // Aggiornamento ottimistico: mostra subito il voto come inviato, senza aspettare il giro di rete
+    setVotiEsistenti((prev) => {
+      const altri = prev.filter((v) => !(v.votante_id === currentPlayerId && v.votato_id === playerId));
+      return [...altri, { votante_id: currentPlayerId, votato_id: playerId, voto: val }];
+    });
     setInviati((s) => ({ ...s, [playerId]: true }));
     setInModifica((s) => ({ ...s, [playerId]: false }));
+    setInvioInCorso((s) => ({ ...s, [playerId]: false }));
+    await onVota(match.id, playerId, val);
+    // Riallinea in background con eventuali voti di altri (per il calcolo dello scarto anomalo)
+    caricaVotiEsistenti();
   };
 
   const modificaVoto = (playerId) => {
@@ -4357,10 +4342,18 @@ export default function CalcettoApp() {
 
   const inviaVotoMvp = async (matchId, votatoId) => {
     if (!currentPlayerId) return;
-    await supabase
+    // Aggiornamento ottimistico: aggiorna subito lo stato locale senza aspettare il giro di rete
+    setVotiMvp((prev) => {
+      const altri = prev.filter((v) => !(v.match_id === matchId && v.votante_id === currentPlayerId));
+      return [...altri, { match_id: matchId, votante_id: currentPlayerId, votato_id: votatoId }];
+    });
+    const { error } = await supabase
       .from("voti_mvp")
       .upsert({ match_id: matchId, votante_id: currentPlayerId, votato_id: votatoId }, { onConflict: "match_id,votante_id" });
-    await caricaVotiMvp();
+    if (error) {
+      // In caso di errore, riallinea con quanto salvato realmente sul server
+      await caricaVotiMvp();
+    }
   };
 
   const rispondiConvocazione = async (matchId, risposta) => {
